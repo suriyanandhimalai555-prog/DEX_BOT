@@ -81,7 +81,7 @@ export function animateModalExit(
 }
 
 export function animateListEnter(items: NodeListOf<Element> | Element[] | null | undefined): void {
-  if (!hasAnimationTargets(items)) return;
+  if (!items || !hasAnimationTargets(items)) return;
   gsap.fromTo(
     items,
     { opacity: 0, x: -12 },

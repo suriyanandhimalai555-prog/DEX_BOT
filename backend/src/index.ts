@@ -35,6 +35,12 @@ import { logger } from './utils/logger.js';
 const app = express();
 const httpServer = createServer(app);
 
+// Trust one hop of reverse-proxy (nginx / AWS ALB) so express-rate-limit
+// reads the real client IP from X-Forwarded-For instead of the proxy IP.
+// Without this, express-rate-limit v7 throws ERR_ERL_UNSET_TRUST_PROXY and
+// all clients share the same rate-limit bucket (the proxy's IP).
+app.set('trust proxy', 1);
+
 const { PORT, FRONTEND_ORIGIN, JWT_ACCESS_SECRET } = getEnv();
 
 const io = new Server(httpServer, {

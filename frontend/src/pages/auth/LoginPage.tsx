@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -37,9 +37,10 @@ export function LoginPage(): JSX.Element {
     formState: { errors },
   } = useForm<FormValues>({ resolver: zodResolver(schema) });
 
-  if (!isLoading && isAuthenticated && user) {
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !user) return;
     navigate(user.role === 'admin' ? '/admin/dashboard' : '/trader/dashboard', { replace: true });
-  }
+  }, [isLoading, isAuthenticated, user, navigate]);
 
   const onSubmit = async (values: FormValues): Promise<void> => {
     try {

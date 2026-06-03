@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import gsap from 'gsap';
 import type { TokenHolding } from '../../store/walletStore';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
@@ -8,7 +7,7 @@ import { useWalletStore } from '../../store/walletStore';
 import { truncateAddress, addressHue } from '../../lib/utils';
 import { loadHoldingsToStore } from '../../lib/walletHoldingsLoader';
 import { ImportWalletDialog } from './ImportWalletDialog';
-import { animateModalEnter, animateModalExit } from '../../lib/animations';
+import { animateListEnter, animateModalEnter, animateModalExit } from '../../lib/animations';
 import { getLenis } from '../../lib/lenis';
 
 function HoldingAvatar({ t }: { t: TokenHolding }): JSX.Element {
@@ -65,6 +64,7 @@ export function TokenHoldingsModal({
   const [importOpen, setImportOpen] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -104,20 +104,16 @@ export function TokenHoldingsModal({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!loading && sorted.length > 0) {
-      gsap.fromTo(
-        '.token-holding-row',
-        { opacity: 0, x: -16 },
-        {
-          opacity: 1,
-          x: 0,
-          duration: 0.4,
-          ease: 'power2.out',
-          stagger: 0.025,
-        }
-      );
-    }
-  }, [loading, sorted]);
+    if (!isOpen || loading || sorted.length === 0) return;
+
+    const frame = requestAnimationFrame(() => {
+      const rows = listRef.current?.querySelectorAll('.token-holding-row');
+      if (!rows?.length) return;
+      animateListEnter(rows);
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [isOpen, loading, sorted]);
 
   function requestClose(): void {
     if (!overlayRef.current || !panelRef.current) {
@@ -162,6 +158,7 @@ export function TokenHoldingsModal({
           <Input placeholder="Search name, symbol, or address…" value={q} onChange={(e) => setQ(e.target.value)} />
 
           <div
+            ref={listRef}
             className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1"
             data-lenis-prevent-wheel
           >

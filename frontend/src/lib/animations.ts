@@ -3,8 +3,14 @@ import ScrollTrigger from 'gsap/ScrollTrigger';
 
 gsap.registerPlugin(ScrollTrigger);
 
+function hasAnimationTargets(targets: NodeListOf<Element> | Element[] | null | undefined): boolean {
+  if (!targets) return false;
+  return 'length' in targets ? targets.length > 0 : true;
+}
+
 export function animatePageEnter(container: HTMLElement): void {
   const elements = container.querySelectorAll('[data-animate]');
+  if (!hasAnimationTargets(elements)) return;
   gsap.fromTo(
     elements,
     { opacity: 0, y: 24, filter: 'blur(4px)' },
@@ -74,7 +80,8 @@ export function animateModalExit(
   gsap.to(overlay, { opacity: 0, duration: 0.2, ease: 'power2.in', onComplete });
 }
 
-export function animateListEnter(items: NodeListOf<Element> | Element[]): void {
+export function animateListEnter(items: NodeListOf<Element> | Element[] | null | undefined): void {
+  if (!hasAnimationTargets(items)) return;
   gsap.fromTo(
     items,
     { opacity: 0, x: -12 },

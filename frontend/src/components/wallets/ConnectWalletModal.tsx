@@ -1,9 +1,8 @@
 import { useConnect, useAccount } from 'wagmi';
 import { bsc } from 'wagmi/chains';
 import { useEffect, useRef, useState } from 'react';
-import gsap from 'gsap';
 import { AlertCircle, CheckCircle, ExternalLink, Loader2, X } from 'lucide-react';
-import { animateModalEnter, animateModalExit } from '../../lib/animations';
+import { animateListEnter, animateModalEnter, animateModalExit } from '../../lib/animations';
 import { getLenis } from '../../lib/lenis';
 
 const WALLET_LOGOS: Record<string, string> = {
@@ -97,11 +96,13 @@ export function ConnectWalletModal({ isOpen, onClose }: Props): JSX.Element | nu
   useEffect(() => {
     if (!isOpen || !overlayRef.current || !panelRef.current) return;
     animateModalEnter(overlayRef.current, panelRef.current);
-    gsap.fromTo(
-      '.wallet-option-card',
-      { opacity: 0, y: 20 },
-      { opacity: 1, y: 0, duration: 0.35, ease: 'power2.out', stagger: 0.08, delay: 0.15 }
-    );
+
+    const frame = requestAnimationFrame(() => {
+      const cards = panelRef.current?.querySelectorAll('.wallet-option-card');
+      animateListEnter(cards);
+    });
+
+    return () => cancelAnimationFrame(frame);
   }, [isOpen]);
 
   function requestClose(): void {

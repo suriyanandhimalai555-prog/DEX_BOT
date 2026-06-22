@@ -1,0 +1,39 @@
+services:
+
+  dex-backend:
+    image: dex-backend:v1
+    container_name: dex-backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "4000:4000"
+    restart: always
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: dex-redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+
+  dex-worker:
+    image: dex-backend:v1
+    container_name: dex-worker
+    env_file:
+      - ./backend/.env
+    restart: always
+    depends_on:
+      - redis
+      - dex-backend
+    command: npm run worker:execution
+
+  dex-frontend:
+    build:
+      context: ./frontend
+    container_name: dex-frontend
+    restart: always
+    ports:
+      - "3001:80"
+    depends_on:
+      - dex-backend

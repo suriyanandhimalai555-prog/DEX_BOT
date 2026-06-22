@@ -126,3 +126,4 @@ npx tsx src/scripts/quote-smoke.ts
 - JWT access and refresh tokens are httpOnly cookies.
 - Wallet import and bot start/stop require TOTP when 2FA is enabled.
 # DEX_BOT1
+# deploy test

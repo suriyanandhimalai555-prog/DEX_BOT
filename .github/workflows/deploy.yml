@@ -2,7 +2,8 @@ name: Deploy To VPS
 
 on:
   workflow_run:
-    workflows: ["Build Pipeline"]
+    workflows:
+      - Build Pipeline
     types:
       - completed
 
@@ -13,22 +14,29 @@ jobs:
 
     steps:
       - name: Deploy to Contabo VPS
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.PORT }}
+          timeout: 60s
+          command_timeout: 20m
+          debug: true
 
           script: |
+            set -e
+
             cd /root/otp/apps/DEX_BOT
 
-            git pull origin main
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io \
+              -u "${{ secrets.GHCR_USERNAME }}" \
+              --password-stdin
 
-            docker compose down
+            docker compose pull
 
-            docker compose build --no-cache
-
-            docker compose up -d
+            docker compose up -d --remove-orphans
 
             docker image prune -af
+
+            docker ps

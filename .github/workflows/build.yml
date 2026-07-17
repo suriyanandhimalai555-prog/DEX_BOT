@@ -6,47 +6,67 @@ on:
       - main
       - master
 
+permissions:
+  contents: read
+  packages: write
+
+
 jobs:
-  build-backend:
+
+  build-and-push:
+
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: backend
-
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          node-version: 20
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Backend Dependencies
-        run: npm install
 
-      - name: Build Backend
-        run: npm run build
+      # Backend Image
+      - name: Build Backend Image
+        run: |
+          docker build \
+          -t ghcr.io/${{ github.repository_owner }}/dex-backend:latest \
+          ./backend
 
-  build-frontend:
-    runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: frontend
+      # Frontend Image
+      - name: Build Frontend Image
+        run: |
+          docker build \
+          -t ghcr.io/${{ github.repository_owner }}/dex-frontend:latest \
+          ./frontend
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      # Worker Image (if you have worker folder)
+      - name: Build Worker Image
+        run: |
+          docker build \
+          -t ghcr.io/${{ github.repository_owner }}/dex-worker:latest \
+          ./worker
 
-      - name: Install Frontend Dependencies
-        run: npm install --legacy-peer-deps
 
-      - name: Build Frontend
-        run: npm run build
+      # Push Images
+
+      - name: Push Backend
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/dex-backend:latest
+
+
+      - name: Push Frontend
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/dex-frontend:latest
+
+
+      - name: Push Worker
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/dex-worker:latest

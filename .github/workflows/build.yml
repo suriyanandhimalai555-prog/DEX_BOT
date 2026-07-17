@@ -10,7 +10,6 @@ permissions:
   contents: read
   packages: write
 
-
 jobs:
 
   build-and-push:
@@ -31,7 +30,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
 
-      # Backend Image
       - name: Build Backend Image
         run: |
           docker build \
@@ -39,7 +37,6 @@ jobs:
           ./backend
 
 
-      # Frontend Image
       - name: Build Frontend Image
         run: |
           docker build \
@@ -47,26 +44,11 @@ jobs:
           ./frontend
 
 
-      # Worker Image (if you have worker folder)
-      - name: Build Worker Image
-        run: |
-          docker build \
-          -t ghcr.io/${{ github.repository_owner }}/dex-worker:latest \
-          ./worker
-
-
-      # Push Images
-
-      - name: Push Backend
+      - name: Push Backend Image
         run: |
           docker push ghcr.io/${{ github.repository_owner }}/dex-backend:latest
 
 
-      - name: Push Frontend
+      - name: Push Frontend Image
         run: |
           docker push ghcr.io/${{ github.repository_owner }}/dex-frontend:latest
-
-
-      - name: Push Worker
-        run: |
-          docker push ghcr.io/${{ github.repository_owner }}/dex-worker:latest

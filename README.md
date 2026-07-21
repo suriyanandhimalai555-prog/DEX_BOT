@@ -121,9 +121,10 @@ npx tsx src/scripts/quote-smoke.ts
 ```
 
 ## Security notes
-
 - Private keys are encrypted at rest; never returned by the API.
 - JWT access and refresh tokens are httpOnly cookies.
 - Wallet import and bot start/stop require TOTP when 2FA is enabled.
 # DEX_BOT1
 # deploy test
+##test email Notifitcation testing 
+Deployment notification test.

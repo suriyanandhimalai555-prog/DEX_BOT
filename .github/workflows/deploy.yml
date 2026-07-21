@@ -40,3 +40,103 @@ jobs:
             docker image prune -af
 
             docker ps
+
+      - name: Send Success Email
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+
+          subject: "✅ DEX BOT Deployment Successful"
+
+          to: |
+            Sanjayvanan03@gmail.com,
+            muthukdm45@gmail.com,
+            deepakavgprimetech@gmail.com
+
+          from: GitHub Actions
+
+          html_body: |
+            <h2>✅ DEX BOT Deployment Successful</h2>
+
+            <table border="1" cellpadding="8" cellspacing="0">
+              <tr>
+                <td><b>Repository</b></td>
+                <td>${{ github.repository }}</td>
+              </tr>
+              <tr>
+                <td><b>Branch</b></td>
+                <td>${{ github.event.workflow_run.head_branch }}</td>
+              </tr>
+              <tr>
+                <td><b>Commit</b></td>
+                <td>${{ github.event.workflow_run.head_sha }}</td>
+              </tr>
+              <tr>
+                <td><b>Triggered By</b></td>
+                <td>${{ github.actor }}</td>
+              </tr>
+              <tr>
+                <td><b>Workflow</b></td>
+                <td>${{ github.workflow }}</td>
+              </tr>
+              <tr>
+                <td><b>Status</b></td>
+                <td>Deployment Successful</td>
+              </tr>
+            </table>
+
+      - name: Send Failure Email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+
+          subject: "❌ DEX BOT Deployment Failed"
+
+          to: |
+            Sanjayvanan03@gmail.com,
+            muthukdm45@gmail.com,
+            deepakavgprimetech@gmail.com
+
+          from: GitHub Actions
+
+          html_body: |
+            <h2>❌ DEX BOT Deployment Failed</h2>
+
+            <table border="1" cellpadding="8" cellspacing="0">
+              <tr>
+                <td><b>Repository</b></td>
+                <td>${{ github.repository }}</td>
+              </tr>
+              <tr>
+                <td><b>Branch</b></td>
+                <td>${{ github.event.workflow_run.head_branch }}</td>
+              </tr>
+              <tr>
+                <td><b>Commit</b></td>
+                <td>${{ github.event.workflow_run.head_sha }}</td>
+              </tr>
+              <tr>
+                <td><b>Triggered By</b></td>
+                <td>${{ github.actor }}</td>
+              </tr>
+              <tr>
+                <td><b>Workflow</b></td>
+                <td>${{ github.workflow }}</td>
+              </tr>
+              <tr>
+                <td><b>Status</b></td>
+                <td>Deployment Failed</td>
+              </tr>
+            </table>
+
+            <br>
+
+            <b>Check GitHub Actions logs for the error.</b>

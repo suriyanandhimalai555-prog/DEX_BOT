@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dex-frontend
+  namespace: dexbot
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: dex-frontend
+  template:
+    metadata:
+      labels:
+        app: dex-frontend
+    spec:
+      containers:
+      - name: dex-frontend
+        image: ghcr.io/suriyanandhimalai555-prog/dex-frontend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+        envFrom:
+        - secretRef:
+            name: dexbot-secret

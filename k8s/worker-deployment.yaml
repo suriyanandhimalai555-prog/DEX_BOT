@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dex-worker
+  namespace: dexbot
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dex-worker
+  template:
+    metadata:
+      labels:
+        app: dex-worker
+    spec:
+      containers:
+      - name: dex-worker
+        image: ghcr.io/suriyanandhimalai555-prog/dex-backend:latest
+        imagePullPolicy: Always
+        command:
+          - npm
+          - run
+          - worker:execution
+        envFrom:
+          - secretRef:
+              name: dexbot-secret

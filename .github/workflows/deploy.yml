@@ -7,281 +7,150 @@ on:
     types:
       - completed
 
-
 jobs:
-
   deploy:
-
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     runs-on: ubuntu-latest
 
-
     steps:
-
       - name: Deploy DEX BOT to Kubernetes VPS
         uses: appleboy/ssh-action@v1.2.2
 
         with:
-
           host: ${{ secrets.HOST }}
-
           username: ${{ secrets.USERNAME }}
-
           key: ${{ secrets.SSH_KEY }}
-
           port: ${{ secrets.PORT }}
-
           timeout: 60s
-
           command_timeout: 20m
-
           debug: true
 
-
           script: |
-
             set -e
 
-
             echo "========== SERVER =========="
-
             hostname
-
             whoami
 
-
             echo "========== APPLICATION =========="
-
             cd /root/otp/apps/DEX_BOT
 
-
-
             echo "========== KUBERNETES STATUS =========="
-
             kubectl get nodes
 
+            COMMIT_SHA="${{ github.event.workflow_run.head_sha }}"
 
+            echo "================================="
+            echo "Deploying Commit: $COMMIT_SHA"
+            echo "================================="
 
-            echo "========== START KUBERNETES DEPLOYMENT =========="
-
-
-            ./scripts/k8s-deploy.sh
-
-
+            ./scripts/k8s-deploy.sh "$COMMIT_SHA"
 
             echo "========== VERIFY POD STATUS =========="
-
-
             kubectl get pods -n dexbot
-
-
 
             echo "========== DEPLOYMENT COMPLETED =========="
 
-
-
       - name: Send Success Email
-
         if: success()
-
         uses: dawidd6/action-send-mail@v3
 
-
         with:
-
           server_address: ${{ secrets.SMTP_SERVER }}
-
           server_port: ${{ secrets.SMTP_PORT }}
-
           secure: true
-
           username: ${{ secrets.SMTP_USERNAME }}
-
           password: ${{ secrets.SMTP_PASSWORD }}
-
-
 
           subject: "✅ DEX BOT Kubernetes Deployment Successful"
 
-
-
           to: |
             Sanjayvanan03@gmail.com,
             muthukdm45@gmail.com,
             deepakavgprimetech@gmail.com
 
-
-
           from: Deepak CI/CD <deepakavgprimetech@gmail.com>
 
-
-
           html_body: |
-
             <h2>✅ DEX BOT Kubernetes Deployment Successful</h2>
 
-
             <table border="1" cellpadding="8">
-
               <tr>
-
                 <td><b>Repository</b></td>
-
                 <td>${{ github.repository }}</td>
-
               </tr>
 
-
               <tr>
-
                 <td><b>Branch</b></td>
-
                 <td>${{ github.event.workflow_run.head_branch }}</td>
-
               </tr>
 
-
               <tr>
-
                 <td><b>Commit</b></td>
-
                 <td>${{ github.event.workflow_run.head_sha }}</td>
-
               </tr>
 
-
               <tr>
-
                 <td><b>Triggered By</b></td>
-
-                <td>${{ github.actor }}</td>
-
+                <td>${{ github.event.workflow_run.actor.login }}</td>
               </tr>
 
-
               <tr>
-
-                <td><b>Deployment</b></td>
-
-                <td>Kubernetes Rolling Update</td>
-
-              </tr>
-
-
-              <tr>
-
                 <td><b>Status</b></td>
-
                 <td>SUCCESS</td>
-
               </tr>
-
-
             </table>
 
-
-
-
       - name: Send Failure Email
-
         if: failure()
-
         uses: dawidd6/action-send-mail@v3
 
-
         with:
-
-
           server_address: ${{ secrets.SMTP_SERVER }}
-
-
           server_port: ${{ secrets.SMTP_PORT }}
-
-
           secure: true
-
-
           username: ${{ secrets.SMTP_USERNAME }}
-
-
           password: ${{ secrets.SMTP_PASSWORD }}
-
-
 
           subject: "❌ DEX BOT Kubernetes Deployment Failed"
 
-
-
           to: |
             Sanjayvanan03@gmail.com,
             muthukdm45@gmail.com,
             deepakavgprimetech@gmail.com
 
-
-
           from: Deepak CI/CD <deepakavgprimetech@gmail.com>
 
-
-
           html_body: |
-
-
             <h2>❌ DEX BOT Kubernetes Deployment Failed</h2>
 
-
             <table border="1" cellpadding="8">
-
-
               <tr>
-
                 <td><b>Repository</b></td>
-
                 <td>${{ github.repository }}</td>
-
               </tr>
 
-
               <tr>
-
                 <td><b>Branch</b></td>
-
                 <td>${{ github.event.workflow_run.head_branch }}</td>
-
               </tr>
 
-
               <tr>
-
                 <td><b>Commit</b></td>
-
                 <td>${{ github.event.workflow_run.head_sha }}</td>
-
               </tr>
 
-
               <tr>
-
                 <td><b>Triggered By</b></td>
-
-                <td>${{ github.actor }}</td>
-
+                <td>${{ github.event.workflow_run.actor.login }}</td>
               </tr>
-
 
               <tr>
-
                 <td><b>Status</b></td>
-
                 <td>FAILED</td>
-
               </tr>
-
-
             </table>
 
-
             <br>
-
-
             Check GitHub Actions logs for details.

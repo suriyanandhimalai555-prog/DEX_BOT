@@ -31,10 +31,11 @@ import { migrateUserFields } from './utils/migrateUsers.js';
 import { createBullmqConnection } from './config/bullmqRedis.js';
 import { AppError } from './utils/errors.js';
 import { logger } from './utils/logger.js';
-
+import client from 'prom-client';
 const app = express();
 const httpServer = createServer(app);
-
+client.collectDefaultMetrics();
+const register = client.register;
 // Trust one hop of reverse-proxy (nginx / AWS ALB) so express-rate-limit
 // reads the real client IP from X-Forwarded-For instead of the proxy IP.
 // Without this, express-rate-limit v7 throws ERR_ERL_UNSET_TRUST_PROXY and
@@ -127,7 +128,10 @@ app.use(generalLimiter);
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
-
+app.get('/metrics', async (_req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
+});
 app.use('/api/public', publicRoutes);
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/admin', requireAuth, requireAdmin, adminRoutes);

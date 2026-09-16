@@ -84,6 +84,7 @@ jobs:
         context: ./backend
 
         push: true
+        platforms: linux/arm64
 
 
         tags: |
@@ -122,6 +123,7 @@ jobs:
         context: ./frontend
 
         push: true
+        platforms: linux/arm64
 
 
         tags: |

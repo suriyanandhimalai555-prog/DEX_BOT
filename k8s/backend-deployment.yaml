@@ -1,12 +1,17 @@
 apiVersion: apps/v1
 kind: Deployment
-
 metadata:
   name: dex-backend
   namespace: dexbot
 
 spec:
-  replicas: 2
+  replicas: 1
+
+  revisionHistoryLimit: 10
+
+  minReadySeconds: 10
+
+  progressDeadlineSeconds: 600
 
   strategy:
     type: RollingUpdate
@@ -25,52 +30,41 @@ spec:
 
     spec:
       containers:
+        - name: dex-backend
 
-      - name: dex-backend
+          image: ghcr.io/suriyanandhimalai555-prog/dex-backend:arm64
 
-        image: ghcr.io/suriyanandhimalai555-prog/dex-backend:latest
+          imagePullPolicy: Always
 
-        imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+              protocol: TCP
 
-        ports:
-        - containerPort: 4000
+          envFrom:
+            - secretRef:
+                name: dexbot-secret
 
-        envFrom:
-        - secretRef:
-            name: dexbot-secret
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
 
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
 
-        # Application health check
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 4000
-
-          # Wait before first check
-          initialDelaySeconds: 10
-
-          # Check every 5 seconds
-          periodSeconds: 5
-
-          # API timeout
-          timeoutSeconds: 3
-
-          # Fail after 3 attempts
-          failureThreshold: 3
-
-
-        # Container restart check
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 4000
-
-          # Wait 30 seconds after startup
-          initialDelaySeconds: 30
-
-          # Check every 10 seconds
-          periodSeconds: 10
-
-          timeoutSeconds: 3
-
-          failureThreshold: 3
+      imagePullSecrets:
+        - name: ghcr-secret

@@ -3,27 +3,68 @@ kind: Deployment
 metadata:
   name: dex-frontend
   namespace: dexbot
+
 spec:
-  replicas: 2
+  replicas: 1
+
+  revisionHistoryLimit: 10
+
+  minReadySeconds: 10
+
+  progressDeadlineSeconds: 600
+
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxUnavailable: 0
       maxSurge: 1
+
   selector:
     matchLabels:
       app: dex-frontend
+
   template:
     metadata:
       labels:
         app: dex-frontend
+
     spec:
       containers:
-      - name: dex-frontend
-        image: ghcr.io/suriyanandhimalai555-prog/dex-frontend:latest
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 80
-        envFrom:
-        - secretRef:
-            name: dexbot-secret
+        - name: dex-frontend
+
+          image: ghcr.io/suriyanandhimalai555-prog/dex-frontend:arm64
+
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 80
+              protocol: TCP
+
+          envFrom:
+            - secretRef:
+                name: dexbot-secret
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+
+      imagePullSecrets:
+        - name: ghcr-secret

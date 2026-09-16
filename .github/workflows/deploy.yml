@@ -34,7 +34,7 @@ jobs:
             whoami
 
             echo "========== APPLICATION =========="
-            cd /root/otp/apps/DEX_BOT
+            cd /home/ubuntu/Applications/Dex_Bot/DEX_BOT
 
             echo "========== KUBERNETES STATUS =========="
             kubectl get nodes
@@ -59,18 +59,17 @@ jobs:
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
-          secure: true
+          secure: false
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
 
           subject: "✅ DEX BOT Kubernetes Deployment Successful"
 
           to: |
-            Sanjayvanan03@gmail.com,
-            muthukdm45@gmail.com,
-            deepakavgprimetech@gmail.com
+            chandrashekhargawda2000@gmail.com,
+            devops@avgprimetech.com
 
-          from: Deepak CI/CD <deepakavgprimetech@gmail.com>
+          from: Deepak CI/CD <devops@avgprimetech.com>
 
           html_body: |
             <h2>✅ DEX BOT Kubernetes Deployment Successful</h2>
@@ -109,18 +108,17 @@ jobs:
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
-          secure: true
+          secure: false
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
 
           subject: "❌ DEX BOT Kubernetes Deployment Failed"
 
           to: |
-            Sanjayvanan03@gmail.com,
-            muthukdm45@gmail.com,
-            deepakavgprimetech@gmail.com
+            chandrashekhargawda2000@gmail.com,
+            devops@avgprimetech.com
 
-          from: Deepak CI/CD <deepakavgprimetech@gmail.com>
+          from: Deepak CI/CD <devops@avgprimetech.com>
 
           html_body: |
             <h2>❌ DEX BOT Kubernetes Deployment Failed</h2>

@@ -124,9 +124,18 @@ const priceLimiter = rateLimit({
 });
 
 app.use(generalLimiter);
-
+app.get('/api/', (_req, res) => {
+  res.status(200).send('DEX BOT Backend API is running');
+});
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
+});
+app.get('/api/health', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    service: 'dex-backend',
+    timestamp: new Date().toISOString(),
+  });
 });
 app.get('/metrics', async (_req, res) => {
   res.set('Content-Type', register.contentType);

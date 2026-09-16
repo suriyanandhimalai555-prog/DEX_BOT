@@ -6,7 +6,7 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN --mount=type=cache,target=/root/.npm npm install --legacy-peer-deps
+RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps
 
 COPY . .
 
@@ -18,7 +18,6 @@ FROM docker.io/library/nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy custom nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
+import axios from 'axios';
 import toast from 'react-hot-toast';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
@@ -34,6 +35,14 @@ function passwordStrength(pw: string): number {
   return s;
 }
 
+function apiErrorMessage(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined;
+    if (data?.message && typeof data.message === 'string') return data.message;
+  }
+  return fallback;
+}
+
 export function RegisterPage(): JSX.Element {
   const navigate = useNavigate();
   const { register: registerUser } = useAuth();
@@ -49,6 +58,7 @@ export function RegisterPage(): JSX.Element {
     register,
     handleSubmit,
     watch,
+    setError,
     formState: { errors },
   } = useForm<FormValues>({ resolver: zodResolver(schema) });
 
@@ -60,8 +70,10 @@ export function RegisterPage(): JSX.Element {
       const user = await registerUser(values.email, values.password, values.displayName);
       toast.success('Account created');
       navigate(user.role === 'admin' ? '/admin/dashboard' : '/trader/dashboard', { replace: true });
-    } catch {
-      toast.error('Registration failed');
+    } catch (err) {
+      const message = apiErrorMessage(err, 'Registration failed');
+      setError('email', { type: 'server', message });
+      toast.error(message);
     }
   };
 
@@ -83,6 +95,7 @@ export function RegisterPage(): JSX.Element {
           <div>
             <label className="text-xs text-[var(--text-muted)]">Email</label>
             <Input type="email" {...register('email')} />
+            {errors.email && <p className="text-xs text-red-500">{errors.email.message}</p>}
           </div>
           <div>
             <label className="text-xs text-[var(--text-muted)]">Password</label>

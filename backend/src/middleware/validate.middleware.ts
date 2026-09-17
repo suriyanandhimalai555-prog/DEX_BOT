@@ -8,11 +8,14 @@ export function validateBody(schema: Schema): RequestHandler {
   return (req, _res, next) => {
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
+      const first = parsed.error.errors[0];
+      const field = first?.path[0] != null ? String(first.path[0]) : undefined;
       next(
         new AppError(
           'VALIDATION_ERROR',
           parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; '),
-          400
+          400,
+          field
         )
       );
       return;

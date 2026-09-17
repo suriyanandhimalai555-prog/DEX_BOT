@@ -63,7 +63,7 @@ Open **http://localhost:5173**.
 
 ## Roles, panels, and trade limits
 
-On first start with an **empty MongoDB**, the API seeds an admin from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `backend/.env` (see `backend/.env.example`). Default: `admin@dexbot.local` / `Admin@123456`.
+On first start with an **empty MongoDB**, the API seeds an admin from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `backend/.env` (copy from `backend/.env.example` and set your own values; never commit `.env`).
 
 | Panel | URL | Who |
 |-------|-----|-----|

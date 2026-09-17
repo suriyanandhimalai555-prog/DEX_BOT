@@ -7,6 +7,11 @@ export async function seedDefaultAdminIfEmpty(): Promise<void> {
   if (count > 0) return;
 
   const env = getEnv();
+  if (!env.ADMIN_EMAIL || !env.ADMIN_PASSWORD) {
+    logger.warn('Empty user collection and ADMIN_EMAIL/ADMIN_PASSWORD unset — skipping admin seed');
+    return;
+  }
+
   const defaultUsd = env.DEFAULT_TRADE_LIMIT_USD;
   const tradeLimitBNB = defaultUsd / env.BNB_PRICE_FALLBACK_USD;
 

@@ -35,12 +35,26 @@ function passwordStrength(pw: string): number {
   return s;
 }
 
-function apiErrorMessage(err: unknown, fallback: string): string {
+function apiErrorDetails(err: unknown, fallback: string): {
+  message: string;
+  field?: keyof FormValues;
+} {
   if (axios.isAxiosError(err)) {
-    const data = err.response?.data as { message?: string } | undefined;
-    if (data?.message && typeof data.message === 'string') return data.message;
+    const data = err.response?.data as { message?: string; field?: string } | undefined;
+    const message =
+      data?.message && typeof data.message === 'string' ? data.message : fallback;
+    const field = data?.field;
+    if (
+      field === 'email' ||
+      field === 'password' ||
+      field === 'displayName' ||
+      field === 'confirmPassword'
+    ) {
+      return { message, field };
+    }
+    return { message };
   }
-  return fallback;
+  return { message: fallback };
 }
 
 export function RegisterPage(): JSX.Element {
@@ -71,8 +85,10 @@ export function RegisterPage(): JSX.Element {
       toast.success('Account created');
       navigate(user.role === 'admin' ? '/admin/dashboard' : '/trader/dashboard', { replace: true });
     } catch (err) {
-      const message = apiErrorMessage(err, 'Registration failed');
-      setError('email', { type: 'server', message });
+      const { message, field } = apiErrorDetails(err, 'Registration failed');
+      if (field) {
+        setError(field, { type: 'server', message });
+      }
       toast.error(message);
     }
   };
@@ -91,6 +107,9 @@ export function RegisterPage(): JSX.Element {
           <div>
             <label className="text-xs text-[var(--text-muted)]">Display name</label>
             <Input {...register('displayName')} />
+            {errors.displayName && (
+              <p className="text-xs text-red-500">{errors.displayName.message}</p>
+            )}
           </div>
           <div>
             <label className="text-xs text-[var(--text-muted)]">Email</label>
@@ -106,6 +125,7 @@ export function RegisterPage(): JSX.Element {
                 style={{ width: `${(strength / 3) * 100}%` }}
               />
             </div>
+            {errors.password && <p className="text-xs text-red-500">{errors.password.message}</p>}
             <p className="mt-1 text-[10px] text-[var(--text-muted)]">8+ chars, uppercase, number</p>
           </div>
           <div>

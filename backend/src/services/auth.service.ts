@@ -41,13 +41,13 @@ function toSafeUser(user: IUser): SafeUser {
 
 function validatePassword(password: string): void {
   if (password.length < 8) {
-    throw new AppError('VALIDATION_ERROR', 'Password must be at least 8 characters', 400);
+    throw new AppError('VALIDATION_ERROR', 'Password must be at least 8 characters', 400, 'password');
   }
   if (!/[A-Z]/.test(password)) {
-    throw new AppError('VALIDATION_ERROR', 'Password must contain an uppercase letter', 400);
+    throw new AppError('VALIDATION_ERROR', 'Password must contain an uppercase letter', 400, 'password');
   }
   if (!/[0-9]/.test(password)) {
-    throw new AppError('VALIDATION_ERROR', 'Password must contain a number', 400);
+    throw new AppError('VALIDATION_ERROR', 'Password must contain a number', 400, 'password');
   }
 }
 
@@ -86,7 +86,7 @@ export async function register(
   const normalized = email.toLowerCase().trim();
   const existing = await User.findOne({ email: normalized });
   if (existing) {
-    throw new AppError('CONFLICT', 'Email already registered', 409);
+    throw new AppError('CONFLICT', 'Email already registered', 409, 'email');
   }
 
   const userCount = await User.countDocuments();

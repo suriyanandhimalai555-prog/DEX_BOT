@@ -163,7 +163,11 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
       );
     }
     // 4xx: expected client mistakes (e.g. no cookie on GET /api/auth/me) — do not log as errors
-    res.status(err.statusCode).json({ error: err.code, message: err.message });
+    res.status(err.statusCode).json({
+      error: err.code,
+      message: err.message,
+      ...(err.field ? { field: err.field } : {}),
+    });
     return;
   }
   logger.error(

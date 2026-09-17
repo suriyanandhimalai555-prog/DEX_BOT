@@ -30,8 +30,8 @@ const envSchema = z.object({
   BSC_CHAIN_ID: z.coerce.number().default(56),
   DEFAULT_TRADE_LIMIT_USD: z.coerce.number().positive().default(1),
   MAX_TRADE_LIMIT_USD: z.coerce.number().positive().default(10000),
-  ADMIN_EMAIL: z.string().email().default('admin@dexbot.local'),
-  ADMIN_PASSWORD: z.string().min(8).default('Admin@123456'),
+  ADMIN_EMAIL: z.string().email().optional(),
+  ADMIN_PASSWORD: z.string().min(8).optional(),
   BNB_PRICE_POLL_INTERVAL_MS: z.coerce.number().positive().default(60_000),
   BNB_PRICE_FALLBACK_USD: z.coerce.number().positive().default(300),
 });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import { isStrongPassword } from '../utils/passwordPolicy.js';
 
 dotenv.config();
 
@@ -31,7 +32,13 @@ const envSchema = z.object({
   DEFAULT_TRADE_LIMIT_USD: z.coerce.number().positive().default(1),
   MAX_TRADE_LIMIT_USD: z.coerce.number().positive().default(10000),
   ADMIN_EMAIL: z.string().email().optional(),
-  ADMIN_PASSWORD: z.string().min(8).optional(),
+  ADMIN_PASSWORD: z
+    .string()
+    .min(8)
+    .refine(isStrongPassword, {
+      message: 'Must be 8+ chars with an uppercase letter and a number',
+    })
+    .optional(),
   BNB_PRICE_POLL_INTERVAL_MS: z.coerce.number().positive().default(60_000),
   BNB_PRICE_FALLBACK_USD: z.coerce.number().positive().default(300),
 });

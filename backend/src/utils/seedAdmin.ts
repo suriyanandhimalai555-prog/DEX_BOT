@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs';
 import { getEnv } from '../config/env.js';
 import { User } from '../models/User.js';
 import { logger } from './logger.js';
+import { passwordPolicyMessage } from './passwordPolicy.js';
+
 export async function seedDefaultAdminIfEmpty(): Promise<void> {
   const count = await User.countDocuments();
   if (count > 0) return;
@@ -10,6 +12,21 @@ export async function seedDefaultAdminIfEmpty(): Promise<void> {
   if (!env.ADMIN_EMAIL || !env.ADMIN_PASSWORD) {
     logger.warn('Empty user collection and ADMIN_EMAIL/ADMIN_PASSWORD unset — skipping admin seed');
     return;
+  }
+
+  if (
+    env.ADMIN_EMAIL.toLowerCase() === 'your-admin@example.com' ||
+    env.ADMIN_PASSWORD === 'Replace_With_A_Strong_Password1'
+  ) {
+    logger.warn(
+      'ADMIN_EMAIL/ADMIN_PASSWORD still use .env.example placeholders — skipping admin seed'
+    );
+    return;
+  }
+
+  const policyError = passwordPolicyMessage(env.ADMIN_PASSWORD);
+  if (policyError) {
+    throw new Error(`ADMIN_PASSWORD is too weak to seed admin: ${policyError}`);
   }
 
   const defaultUsd = env.DEFAULT_TRADE_LIMIT_USD;

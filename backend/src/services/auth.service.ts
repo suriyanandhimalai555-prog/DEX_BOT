@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { getEnv } from '../config/env.js';
 import { User, type IUser, type UserRole } from '../models/User.js';
 import { AppError } from '../utils/errors.js';
+import { passwordPolicyMessage } from '../utils/passwordPolicy.js';
 import { bnbPriceService } from './bnbPrice.service.js';
 import { logAudit } from './auditLog.service.js';
 
@@ -40,14 +41,9 @@ function toSafeUser(user: IUser): SafeUser {
 }
 
 function validatePassword(password: string): void {
-  if (password.length < 8) {
-    throw new AppError('VALIDATION_ERROR', 'Password must be at least 8 characters', 400, 'password');
-  }
-  if (!/[A-Z]/.test(password)) {
-    throw new AppError('VALIDATION_ERROR', 'Password must contain an uppercase letter', 400, 'password');
-  }
-  if (!/[0-9]/.test(password)) {
-    throw new AppError('VALIDATION_ERROR', 'Password must contain a number', 400, 'password');
+  const message = passwordPolicyMessage(password);
+  if (message) {
+    throw new AppError('VALIDATION_ERROR', message, 400, 'password');
   }
 }
 

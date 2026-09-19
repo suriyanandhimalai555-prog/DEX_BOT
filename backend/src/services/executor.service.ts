@@ -1,11 +1,12 @@
 import { Contract, MaxUint256, getAddress, parseUnits } from 'ethers';
-import mongoose from 'mongoose';
+import type { Prisma } from '@prisma/client';
 import { getEnv } from '../config/env.js';
 import { getJsonRpcProvider } from '../config/chain.js';
 import { resolveRouterAddress } from '../config/dex.js';
+import { prisma } from '../config/prisma.js';
+import { mapTransaction } from '../db/mappers.js';
 import type { IBot } from '../models/Bot.js';
 import type { FailureCode, ITransaction } from '../models/Transaction.js';
-import { Transaction } from '../models/Transaction.js';
 import type { IWallet } from '../models/Wallet.js';
 import { logger } from '../utils/logger.js';
 import { buildSwapTx, getQuote, type SwapParams } from './pancake.adapter.js';
@@ -48,20 +49,52 @@ export interface ExecuteIntentParams {
   bot: IBot;
   wallet: IWallet;
   intent: ExecutionIntent;
-  botRunId: mongoose.Types.ObjectId;
-  userId: mongoose.Types.ObjectId | string;
+  botRunId: string;
+  userId: string;
   /** The wallet owner's per-user encryption key (hex). Must match the key used at wallet import. */
   encryptionKey: string;
 }
 
-async function persistFailed(
-  partial: Partial<ITransaction> & Pick<ITransaction, 'botId' | 'walletId' | 'createdBy'>
-): Promise<ITransaction> {
-  const doc = await Transaction.create({
-    ...partial,
-    status: 'failed',
+type FailedTxInput = Pick<
+  ITransaction,
+  | 'botId'
+  | 'botRunId'
+  | 'walletId'
+  | 'walletAddress'
+  | 'chain'
+  | 'dex'
+  | 'dexVersion'
+  | 'side'
+  | 'inputToken'
+  | 'outputToken'
+  | 'inputAmount'
+  | 'createdBy'
+> & {
+  failureCode: FailureCode;
+  failureReason?: string;
+};
+
+async function persistFailed(partial: FailedTxInput): Promise<ITransaction> {
+  const row = await prisma.transaction.create({
+    data: {
+      botId: partial.botId,
+      botRunId: partial.botRunId,
+      walletId: partial.walletId,
+      walletAddress: partial.walletAddress,
+      chain: partial.chain,
+      dex: partial.dex,
+      dexVersion: partial.dexVersion,
+      side: partial.side,
+      inputToken: partial.inputToken,
+      outputToken: partial.outputToken,
+      inputAmount: partial.inputAmount,
+      status: 'failed',
+      failureCode: partial.failureCode,
+      failureReason: partial.failureReason,
+      createdBy: partial.createdBy,
+    },
   });
-  return doc;
+  return mapTransaction(row);
 }
 
 export async function executeIntent(
@@ -91,9 +124,9 @@ export async function executeIntent(
   } catch {
     const code: FailureCode = 'TOKEN_RESTRICTED';
     const doc = await persistFailed({
-      botId: bot._id,
+      botId: bot.id,
       botRunId,
-      walletId: wallet._id,
+      walletId: wallet.id,
       walletAddress: wallet.address,
       chain: 'bsc',
       dex: bot.dex,
@@ -104,7 +137,7 @@ export async function executeIntent(
       inputAmount: intent.amountIn.toString(),
       failureCode: code,
       failureReason: 'Invalid token addresses',
-      createdBy: new mongoose.Types.ObjectId(String(userId)),
+      createdBy: String(userId),
     });
     emitTxFailed(String(userId), doc, code);
     return { failureCode: code };
@@ -115,8 +148,8 @@ export async function executeIntent(
 
   logger.info({
     message: 'executeIntent_start',
-    botId: String(bot._id),
-    walletId: String(wallet._id),
+    botId: bot.id,
+    walletId: wallet.id,
     dex: bot.dex,
     dexVersion: bot.dexVersion,
     routerAddress: routerAddr,
@@ -131,7 +164,7 @@ export async function executeIntent(
   const effectiveAmountIn = capResult.amountWei;
   if (capResult.wasCapped) {
     logger.warn(
-      `[Executor] Trade capped bot=${String(bot._id)} requested=${capResult.requestedBNB?.toFixed(6)} capped=${capResult.cappedToBNB?.toFixed(6)} limitUSD=${capResult.limitUSD}`
+      `[Executor] Trade capped bot=${bot.id} requested=${capResult.requestedBNB?.toFixed(6)} capped=${capResult.cappedToBNB?.toFixed(6)} limitUSD=${capResult.limitUSD}`
     );
   }
 
@@ -149,9 +182,9 @@ export async function executeIntent(
       if (bal < effectiveAmountIn) {
         const code: FailureCode = 'INSUFFICIENT_BALANCE';
         const doc = await persistFailed({
-          botId: bot._id,
+          botId: bot.id,
           botRunId,
-          walletId: wallet._id,
+          walletId: wallet.id,
           walletAddress: wallet.address,
           chain: 'bsc',
           dex: bot.dex,
@@ -162,7 +195,7 @@ export async function executeIntent(
           inputAmount: effectiveAmountIn.toString(),
           failureCode: code,
           failureReason: 'Token balance too low',
-          createdBy: new mongoose.Types.ObjectId(String(userId)),
+          createdBy: String(userId),
         });
         emitTxFailed(String(userId), doc, code);
         return { failureCode: code };
@@ -187,9 +220,9 @@ export async function executeIntent(
     } catch (e) {
       const code: FailureCode = 'ROUTE_UNAVAILABLE';
       const doc = await persistFailed({
-        botId: bot._id,
+        botId: bot.id,
         botRunId,
-        walletId: wallet._id,
+        walletId: wallet.id,
         walletAddress: wallet.address,
         chain: 'bsc',
         dex: bot.dex,
@@ -200,7 +233,7 @@ export async function executeIntent(
         inputAmount: effectiveAmountIn.toString(),
         failureCode: code,
         failureReason: e instanceof Error ? e.message : String(e),
-        createdBy: new mongoose.Types.ObjectId(String(userId)),
+        createdBy: String(userId),
       });
       emitTxFailed(String(userId), doc, code);
       return { failureCode: code };
@@ -209,9 +242,9 @@ export async function executeIntent(
     if (quoteResult.priceImpactBps > PRICE_IMPACT_MAX_BPS) {
       const code: FailureCode = 'SLIPPAGE_EXCEEDED';
       const doc = await persistFailed({
-        botId: bot._id,
+        botId: bot.id,
         botRunId,
-        walletId: wallet._id,
+        walletId: wallet.id,
         walletAddress: wallet.address,
         chain: 'bsc',
         dex: bot.dex,
@@ -222,7 +255,7 @@ export async function executeIntent(
         inputAmount: effectiveAmountIn.toString(),
         failureCode: code,
         failureReason: `Price impact ${quoteResult.priceImpactBps} bps`,
-        createdBy: new mongoose.Types.ObjectId(String(userId)),
+        createdBy: String(userId),
       });
       emitTxFailed(String(userId), doc, code);
       return { failureCode: code };
@@ -234,8 +267,8 @@ export async function executeIntent(
       if (allowance < effectiveAmountIn) {
         logger.info({
           message: 'executeIntent_approve',
-          botId: String(bot._id),
-          walletId: String(wallet._id),
+          botId: bot.id,
+          walletId: wallet.id,
           step: 'approve_token',
         });
         const approveTx = await erc20Rw.approve(routerAddr, MaxUint256);
@@ -249,7 +282,7 @@ export async function executeIntent(
     if (swapTo.toLowerCase() !== routerAddr.toLowerCase()) {
       logger.warn({
         message: 'executeIntent_router_mismatch',
-        botId: String(bot._id),
+        botId: bot.id,
         expectedRouter: routerAddr,
         swapTo,
         dex: bot.dex,
@@ -259,8 +292,8 @@ export async function executeIntent(
 
     logger.info({
       message: 'executeIntent_swap',
-      botId: String(bot._id),
-      walletId: String(wallet._id),
+      botId: bot.id,
+      walletId: wallet.id,
       dex: bot.dex,
       dexVersion: bot.dexVersion,
       routerAddress: routerAddr,
@@ -271,8 +304,8 @@ export async function executeIntent(
 
     logger.info({
       message: 'executeIntent_estimateGas',
-      botId: String(bot._id),
-      walletId: String(wallet._id),
+      botId: bot.id,
+      walletId: wallet.id,
       step: 'estimate_gas',
     });
 
@@ -295,9 +328,9 @@ export async function executeIntent(
     if (nativeBal < gasCostApprox + (isNativePath ? effectiveAmountIn : 0n)) {
       const code: FailureCode = 'INSUFFICIENT_BALANCE';
       const doc = await persistFailed({
-        botId: bot._id,
+        botId: bot.id,
         botRunId,
-        walletId: wallet._id,
+        walletId: wallet.id,
         walletAddress: wallet.address,
         chain: 'bsc',
         dex: bot.dex,
@@ -308,7 +341,7 @@ export async function executeIntent(
         inputAmount: effectiveAmountIn.toString(),
         failureCode: code,
         failureReason: 'Not enough BNB for gas',
-        createdBy: new mongoose.Types.ObjectId(String(userId)),
+        createdBy: String(userId),
       });
       emitTxFailed(String(userId), doc, code);
       return { failureCode: code };
@@ -334,42 +367,45 @@ export async function executeIntent(
         ? (Number(quoteResult.amountOut) / Number(effectiveAmountIn)).toFixed(18)
         : '0';
 
-    const submitted = await Transaction.create({
-      botId: bot._id,
-      botRunId,
-      walletId: wallet._id,
-      walletAddress: wallet.address,
-      chain: 'bsc',
-      dex: bot.dex,
-      dexVersion: bot.dexVersion,
-      side: intent.side,
-      inputToken: tokenIn,
-      outputToken: tokenOut,
-      inputAmount: effectiveAmountIn.toString(),
-      status: 'submitted',
-      wasLimitCapped: capResult.wasCapped,
-      ...(capResult.wasCapped && capResult.cappedToBNB != null
-        ? {
-            limitCapDetails: {
-              requestedBNB: String(capResult.requestedBNB ?? 0),
-              cappedToBNB: String(capResult.cappedToBNB),
-              limitUSD: capResult.limitUSD ?? 0,
-              bnbPriceAtTrade: capResult.bnbPriceAtTrade ?? 0,
-            },
-          }
-        : {}),
-      txHash: txResponse.hash,
-      submittedAt: new Date(),
-      quotedPrice,
-      createdBy: new mongoose.Types.ObjectId(String(userId)),
+    const submittedRow = await prisma.transaction.create({
+      data: {
+        botId: bot.id,
+        botRunId,
+        walletId: wallet.id,
+        walletAddress: wallet.address,
+        chain: 'bsc',
+        dex: bot.dex,
+        dexVersion: bot.dexVersion,
+        side: intent.side,
+        inputToken: tokenIn,
+        outputToken: tokenOut,
+        inputAmount: effectiveAmountIn.toString(),
+        status: 'submitted',
+        wasLimitCapped: capResult.wasCapped,
+        ...(capResult.wasCapped && capResult.cappedToBNB != null
+          ? {
+              limitCapDetails: {
+                requestedBNB: String(capResult.requestedBNB ?? 0),
+                cappedToBNB: String(capResult.cappedToBNB),
+                limitUSD: capResult.limitUSD ?? 0,
+                bnbPriceAtTrade: capResult.bnbPriceAtTrade ?? 0,
+              } as Prisma.InputJsonValue,
+            }
+          : {}),
+        txHash: txResponse.hash,
+        submittedAt: new Date(),
+        quotedPrice,
+        createdBy: String(userId),
+      },
     });
+    const submitted = mapTransaction(submittedRow);
 
     emitTxSubmitted(String(userId), submitted);
 
     logger.info({
       message: 'executeIntent_submitted',
-      botId: String(bot._id),
-      walletId: String(wallet._id),
+      botId: bot.id,
+      walletId: wallet.id,
       step: 'tx_submitted',
       txHash: txResponse.hash,
     });
@@ -378,12 +414,12 @@ export async function executeIntent(
   } catch (err) {
     const code = classifyFailure(err);
     logger.error(
-      `executeIntent error bot=${String(bot._id)} wallet=${String(wallet._id)} ${err}`
+      `executeIntent error bot=${bot.id} wallet=${wallet.id} ${err}`
     );
     const doc = await persistFailed({
-      botId: bot._id,
+      botId: bot.id,
       botRunId,
-      walletId: wallet._id,
+      walletId: wallet.id,
       walletAddress: wallet.address,
       chain: 'bsc',
       dex: bot.dex,
@@ -394,7 +430,7 @@ export async function executeIntent(
       inputAmount: effectiveAmountIn.toString(),
       failureCode: code,
       failureReason: err instanceof Error ? err.message : String(err),
-      createdBy: new mongoose.Types.ObjectId(String(userId)),
+      createdBy: String(userId),
     });
     emitTxFailed(String(userId), doc, code);
     return { failureCode: code };

@@ -1,4 +1,4 @@
-import { User } from '../models/User.js';
+import { prisma } from '../config/prisma.js';
 import { logger } from '../utils/logger.js';
 import { bnbPriceService } from './bnbPrice.service.js';
 
@@ -16,10 +16,15 @@ class LimitSyncService {
 
     if (this.lastSyncPrice > 0 && priceChange < 2) return;
 
-    const users = await User.find({ isActive: true }).select('id tradeLimitUSD');
+    const users = await prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, tradeLimitUSD: true },
+    });
     for (const user of users) {
-      user.tradeLimitBNB = bnbPriceService.usdToBnb(user.tradeLimitUSD);
-      await user.save();
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { tradeLimitBNB: bnbPriceService.usdToBnb(user.tradeLimitUSD) },
+      });
     }
 
     this.lastSyncPrice = currentPrice;

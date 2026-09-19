@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import QRCode from 'qrcode';
 import speakeasy from 'speakeasy';
 import { getEnv } from '../config/env.js';
-import { User } from '../models/User.js';
+import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import * as authService from '../services/auth.service.js';
@@ -104,9 +104,9 @@ export async function setup2fa(_req: Request, res: Response): Promise<void> {
   const secret = speakeasy.generateSecret({
     name: `DEX Bot (${userId})`,
   });
-  await User.findByIdAndUpdate(userId, {
-    totpSecret: secret.base32,
-    isTotpEnabled: false,
+  await prisma.user.update({
+    where: { id: userId },
+    data: { totpSecret: secret.base32, isTotpEnabled: false },
   });
   const otpauthUrl = secret.otpauth_url ?? '';
   const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
@@ -122,7 +122,10 @@ export async function verify2fa(req: Request, res: Response): Promise<void> {
     throw new AppError('UNAUTHORIZED', 'Authentication required', 401);
   }
   const { token } = req.body as { token: string };
-  const user = await User.findById(userId).select('+totpSecret');
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { totpSecret: true },
+  });
   if (!user?.totpSecret) {
     throw new AppError('VALIDATION_ERROR', 'Run 2FA setup first', 400);
   }
@@ -135,8 +138,10 @@ export async function verify2fa(req: Request, res: Response): Promise<void> {
   if (!ok) {
     throw new AppError('VALIDATION_ERROR', 'Invalid TOTP token', 400);
   }
-  user.isTotpEnabled = true;
-  await user.save();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { isTotpEnabled: true },
+  });
   res.json({ enabled: true });
 }
 
@@ -186,8 +191,11 @@ export async function updateProfile(req: Request, res: Response): Promise<void> 
     throw new AppError('UNAUTHORIZED', 'Authentication required', 401);
   }
   const { telegramChatId } = req.body as { telegramChatId?: string };
-  await User.findByIdAndUpdate(userId, {
-    ...(telegramChatId !== undefined ? { telegramChatId } : {}),
-  });
+  if (telegramChatId !== undefined) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { telegramChatId },
+    });
+  }
   res.json({ ok: true });
 }

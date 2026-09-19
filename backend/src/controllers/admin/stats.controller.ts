@@ -1,27 +1,31 @@
 import type { Request, Response } from 'express';
-import { User } from '../../models/User.js';
-import { Bot } from '../../models/Bot.js';
-import { LimitRequest } from '../../models/LimitRequest.js';
-import { Transaction } from '../../models/Transaction.js';
+import { prisma } from '../../config/prisma.js';
 import { bnbPriceService } from '../../services/bnbPrice.service.js';
 
 export async function platformStats(_req: Request, res: Response): Promise<void> {
   const start = new Date();
   start.setUTCHours(0, 0, 0, 0);
 
-  const totalTraders = await User.countDocuments({ role: { $in: ['trader', 'observer'] } });
-  const activeTraders = await User.countDocuments({
-    role: { $in: ['trader', 'observer'] },
-    isActive: true,
-  });
-  const totalBots = await Bot.countDocuments();
-  const activeBots = await Bot.countDocuments({ status: 'active' });
-  const pendingRequests = await LimitRequest.countDocuments({ status: 'pending' });
-
-  const txs = await Transaction.find({
-    status: 'confirmed',
-    createdAt: { $gte: start },
-  }).select('inputAmount').lean();
+  const [
+    totalTraders,
+    activeTraders,
+    totalBots,
+    activeBots,
+    pendingRequests,
+    txs,
+  ] = await Promise.all([
+    prisma.user.count({ where: { role: { in: ['trader', 'observer'] } } }),
+    prisma.user.count({
+      where: { role: { in: ['trader', 'observer'] }, isActive: true },
+    }),
+    prisma.bot.count(),
+    prisma.bot.count({ where: { status: 'active' } }),
+    prisma.limitRequest.count({ where: { status: 'pending' } }),
+    prisma.transaction.findMany({
+      where: { status: 'confirmed', createdAt: { gte: start } },
+      select: { inputAmount: true },
+    }),
+  ]);
 
   let volumeWei = 0n;
   for (const t of txs) {

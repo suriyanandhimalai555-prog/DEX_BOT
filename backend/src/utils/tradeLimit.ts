@@ -1,12 +1,15 @@
-import { User } from '../models/User.js';
+import { prisma } from '../config/prisma.js';
 import { bnbPriceService } from '../services/bnbPrice.service.js';
 
 export async function recalculateUserLimitBNB(userId: string): Promise<number> {
-  const user = await User.findById(userId);
+  const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error(`User ${userId} not found`);
-  user.tradeLimitBNB = bnbPriceService.usdToBnb(user.tradeLimitUSD);
-  await user.save();
-  return user.tradeLimitBNB;
+  const tradeLimitBNB = bnbPriceService.usdToBnb(user.tradeLimitUSD);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { tradeLimitBNB },
+  });
+  return tradeLimitBNB;
 }
 
 export interface CapResult {
@@ -28,7 +31,7 @@ export async function capWeiToUserLimit(
     return { amountWei, wasCapped: false };
   }
 
-  const user = await User.findById(userId);
+  const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) {
     return { amountWei, wasCapped: false };
   }

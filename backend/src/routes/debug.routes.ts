@@ -3,11 +3,12 @@ import { ethers } from 'ethers';
 import { Queue } from 'bullmq';
 import { createBullmqConnection } from '../config/bullmqRedis.js';
 import { QUEUE_NAMES } from '../config/queues.js';
-import { Wallet } from '../models/Wallet.js';
+import { prisma } from '../config/prisma.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { decryptPrivateKey, encryptPrivateKey } from '../utils/crypto.js';
 import { getOrCreateUserEncryptionKey } from '../utils/userKey.js';
+import { isUuid } from '../utils/ids.js';
 
 const router = Router();
 
@@ -63,7 +64,13 @@ router.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const { walletId } = req.params;
-    const doc = await Wallet.findOne({ _id: walletId, createdBy: req.userId }).select('+encryptedPrivateKey');
+    if (!isUuid(walletId)) {
+      res.status(400).json({ ok: false, error: 'Invalid wallet id' });
+      return;
+    }
+    const doc = await prisma.wallet.findFirst({
+      where: { id: walletId, createdBy: req.userId },
+    });
     if (!doc) {
       res.status(404).json({ ok: false, error: 'Wallet not found' });
       return;
@@ -114,8 +121,14 @@ router.post(
       res.status(400).json({ ok: false, error: 'privateKey is required' });
       return;
     }
+    if (!isUuid(walletId)) {
+      res.status(400).json({ ok: false, error: 'Invalid wallet id' });
+      return;
+    }
 
-    const doc = await Wallet.findOne({ _id: walletId, createdBy: req.userId }).select('+encryptedPrivateKey');
+    const doc = await prisma.wallet.findFirst({
+      where: { id: walletId, createdBy: req.userId },
+    });
     if (!doc) {
       res.status(404).json({ ok: false, error: 'Wallet not found' });
       return;
@@ -143,8 +156,10 @@ router.post(
     }
 
     const encryptionKey = await getOrCreateUserEncryptionKey(req.userId!);
-    doc.encryptedPrivateKey = encryptPrivateKey(normalizedKey, encryptionKey);
-    await doc.save();
+    await prisma.wallet.update({
+      where: { id: doc.id },
+      data: { encryptedPrivateKey: encryptPrivateKey(normalizedKey, encryptionKey) },
+    });
 
     res.json({
       ok: true,

@@ -1,21 +1,22 @@
 import type { Request, Response } from 'express';
-import { LimitRequest } from '../../models/LimitRequest.js';
-import { User } from '../../models/User.js';
+import { prisma } from '../../config/prisma.js';
+import type { ILimitRequest } from '../../models/LimitRequest.js';
 import { AppError } from '../../utils/errors.js';
+import { requireUuid } from '../../utils/ids.js';
 import { getEnv } from '../../config/env.js';
 import { clientIp, logAudit } from '../../services/auditLog.service.js';
 import { bnbPriceService } from '../../services/bnbPrice.service.js';
 
-function serializeRequest(doc: InstanceType<typeof LimitRequest>) {
+function serializeRequest(doc: ILimitRequest) {
   return {
     id: doc.id,
-    userId: doc.userId.toString(),
+    userId: doc.userId,
     requestedUSD: doc.requestedUSD,
     currentUSD: doc.currentUSD,
     reason: doc.reason,
     status: doc.status,
     adminNote: doc.adminNote,
-    reviewedBy: doc.reviewedBy?.toString(),
+    reviewedBy: doc.reviewedBy ?? undefined,
     reviewedAt: doc.reviewedAt,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -27,7 +28,7 @@ export async function submitRequest(req: Request, res: Response): Promise<void> 
   const { requestedUSD, reason } = req.body as { requestedUSD: number; reason: string };
   const { MAX_TRADE_LIMIT_USD } = getEnv();
 
-  const user = await User.findById(userId);
+  const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new AppError('NOT_FOUND', 'User not found', 404);
 
   if (requestedUSD <= user.tradeLimitUSD) {
@@ -40,17 +41,21 @@ export async function submitRequest(req: Request, res: Response): Promise<void> 
     throw new AppError('VALIDATION_ERROR', 'Reason must be at least 20 characters', 400);
   }
 
-  const pending = await LimitRequest.findOne({ userId, status: 'pending' });
+  const pending = await prisma.limitRequest.findFirst({
+    where: { userId, status: 'pending' },
+  });
   if (pending) {
     throw new AppError('CONFLICT', 'You already have a pending request', 409);
   }
 
-  const doc = await LimitRequest.create({
-    userId,
-    requestedUSD,
-    currentUSD: user.tradeLimitUSD,
-    reason: reason.trim(),
-    status: 'pending',
+  const doc = await prisma.limitRequest.create({
+    data: {
+      userId,
+      requestedUSD,
+      currentUSD: user.tradeLimitUSD,
+      reason: reason.trim(),
+      status: 'pending',
+    },
   });
 
   await logAudit('LIMIT_REQUEST_SUBMITTED', {
@@ -64,27 +69,30 @@ export async function submitRequest(req: Request, res: Response): Promise<void> 
 
 export async function listMyRequests(req: Request, res: Response): Promise<void> {
   const userId = req.userId!;
-  const rows = await LimitRequest.find({ userId }).sort({ createdAt: -1 });
+  const rows = await prisma.limitRequest.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+  });
   res.json({ requests: rows.map(serializeRequest) });
 }
 
 export async function getMyRequest(req: Request, res: Response): Promise<void> {
   const userId = req.userId!;
-  const { id } = req.params;
-  const doc = await LimitRequest.findOne({ _id: id, userId });
+  const id = requireUuid(req.params.id);
+  const doc = await prisma.limitRequest.findFirst({ where: { id, userId } });
   if (!doc) throw new AppError('NOT_FOUND', 'Request not found', 404);
   res.json({ request: serializeRequest(doc) });
 }
 
 export async function cancelRequest(req: Request, res: Response): Promise<void> {
   const userId = req.userId!;
-  const { id } = req.params;
-  const doc = await LimitRequest.findOne({ _id: id, userId });
+  const id = requireUuid(req.params.id);
+  const doc = await prisma.limitRequest.findFirst({ where: { id, userId } });
   if (!doc) throw new AppError('NOT_FOUND', 'Request not found', 404);
   if (doc.status !== 'pending') {
     throw new AppError('CONFLICT', 'Only pending requests can be cancelled', 409);
   }
-  await doc.deleteOne();
+  await prisma.limitRequest.delete({ where: { id } });
   res.status(204).end();
 }
 

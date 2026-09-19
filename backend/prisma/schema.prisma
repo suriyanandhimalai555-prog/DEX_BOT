@@ -1,0 +1,308 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  trader
+  observer
+}
+
+enum StrategyType {
+  smooth_buy
+  smooth_sell
+  volume_cycle
+}
+
+enum DexId {
+  pancakeswap
+  uniswap
+}
+
+enum DexVersion {
+  v2
+  v3
+}
+
+enum BotStatus {
+  draft
+  active
+  paused
+  stopped
+  errored
+}
+
+enum WalletStatus {
+  active
+  quarantined
+  drained
+}
+
+enum BotRunStatus {
+  running
+  completed
+  failed
+}
+
+enum TxStatus {
+  pending
+  submitted
+  confirmed
+  failed
+}
+
+enum FailureCode {
+  INSUFFICIENT_BALANCE
+  ROUTE_UNAVAILABLE
+  SLIPPAGE_EXCEEDED
+  ALLOWANCE_REQUIRED
+  NONCE_CONFLICT
+  RPC_UNAVAILABLE
+  TOKEN_RESTRICTED
+  GAS_ESTIMATION_FAILED
+  UNKNOWN_REVERT
+}
+
+enum TradeSide {
+  buy
+  sell
+}
+
+enum LimitRequestStatus {
+  pending
+  approved
+  rejected
+}
+
+enum ChainId {
+  bsc
+}
+
+model User {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email          String    @unique
+  passwordHash   String    @map("password_hash")
+  displayName    String    @default("User") @map("display_name")
+  totpSecret     String?   @map("totp_secret")
+  isTotpEnabled  Boolean   @default(false) @map("is_totp_enabled")
+  telegramChatId String?   @map("telegram_chat_id")
+  role           UserRole  @default(trader)
+  isActive       Boolean   @default(true) @map("is_active")
+  tradeLimitUSD  Float     @default(1) @map("trade_limit_usd")
+  tradeLimitBNB  Float     @default(0.003) @map("trade_limit_bnb")
+  tokenVersion   Int       @default(0) @map("token_version")
+  encryptionKey  String?   @map("encryption_key")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  wallets        Wallet[]
+  walletGroups   WalletGroup[]
+  bots           Bot[]
+  transactions   Transaction[]
+  limitRequests  LimitRequest[]
+  reviewedLimits LimitRequest[] @relation("LimitRequestReviewer")
+  auditLogs      AuditLog[]
+
+  @@map("users")
+}
+
+model Wallet {
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  label               String
+  address             String
+  encryptedPrivateKey String       @map("encrypted_private_key")
+  walletGroupId       String?      @map("wallet_group_id") @db.Uuid
+  chain               ChainId      @default(bsc)
+  status              WalletStatus @default(active)
+  nativeBalance       String       @default("0") @map("native_balance")
+  dailySpentNotional  Float        @default(0) @map("daily_spent_notional")
+  dailyResetAt        DateTime     @default(now()) @map("daily_reset_at")
+  lastExecutedAt      DateTime?    @map("last_executed_at")
+  activeBotCount      Int          @default(0) @map("active_bot_count")
+  createdBy           String       @map("created_by") @db.Uuid
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  creator     User                @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  primaryGroup WalletGroup?       @relation("WalletPrimaryGroup", fields: [walletGroupId], references: [id], onDelete: SetNull)
+  memberships WalletGroupMember[]
+  transactions Transaction[]
+
+  @@unique([createdBy, address])
+  @@index([address])
+  @@map("wallets")
+}
+
+model WalletGroup {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  createdBy String   @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  creator          User                @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  members          WalletGroupMember[]
+  bots             Bot[]
+  primaryWallets   Wallet[]            @relation("WalletPrimaryGroup")
+
+  @@index([createdBy])
+  @@map("wallet_groups")
+}
+
+model WalletGroupMember {
+  groupId  String @map("group_id") @db.Uuid
+  walletId String @map("wallet_id") @db.Uuid
+
+  group  WalletGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  wallet Wallet      @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, walletId])
+  @@index([walletId])
+  @@map("wallet_group_members")
+}
+
+model Bot {
+  id                   String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String
+  strategyType         StrategyType @map("strategy_type")
+  chain                ChainId      @default(bsc)
+  dex                  DexId        @default(pancakeswap)
+  dexVersion           DexVersion   @map("dex_version")
+  baseToken            String       @map("base_token")
+  quoteToken           String       @map("quote_token")
+  walletGroupId        String       @map("wallet_group_id") @db.Uuid
+  buyEnabled           Boolean      @default(true) @map("buy_enabled")
+  sellEnabled          Boolean      @default(true) @map("sell_enabled")
+  amountMin            String       @map("amount_min")
+  amountMax            String       @map("amount_max")
+  intervalSeconds      Int          @map("interval_seconds")
+  slippageBps          Int          @map("slippage_bps")
+  gasPolicy            Json         @map("gas_policy")
+  riskPolicy           Json         @map("risk_policy")
+  status               BotStatus    @default(draft)
+  lastRunAt            DateTime?    @map("last_run_at")
+  consecutiveFailures  Int          @default(0) @map("consecutive_failures")
+  cooldownUntil        DateTime?    @map("cooldown_until")
+  dailyNotionalUSD     Float        @default(0) @map("daily_notional_usd")
+  dailyNotionalResetAt DateTime     @default(now()) @map("daily_notional_reset_at")
+  createdBy            String       @map("created_by") @db.Uuid
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  creator     User          @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  walletGroup WalletGroup   @relation(fields: [walletGroupId], references: [id], onDelete: Restrict)
+  runs        BotRun[]
+  transactions Transaction[]
+
+  @@index([createdBy])
+  @@index([walletGroupId])
+  @@map("bots")
+}
+
+model BotRun {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  botId         String       @map("bot_id") @db.Uuid
+  triggeredAt   DateTime     @map("triggered_at")
+  startedAt     DateTime     @map("started_at")
+  endedAt       DateTime?    @map("ended_at")
+  status        BotRunStatus @default(running)
+  intentCount   Int          @default(0) @map("intent_count")
+  successCount  Int          @default(0) @map("success_count")
+  failureCount  Int          @default(0) @map("failure_count")
+  errorMessage  String?      @map("error_message")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  bot          Bot           @relation(fields: [botId], references: [id], onDelete: Restrict)
+  transactions Transaction[]
+
+  @@index([botId])
+  @@index([botId, startedAt(sort: Desc)])
+  @@map("bot_runs")
+}
+
+model Transaction {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  botId           String       @map("bot_id") @db.Uuid
+  botRunId        String       @map("bot_run_id") @db.Uuid
+  walletId        String       @map("wallet_id") @db.Uuid
+  walletAddress   String       @map("wallet_address")
+  chain           ChainId      @default(bsc)
+  dex             DexId        @default(pancakeswap)
+  dexVersion      DexVersion   @map("dex_version")
+  side            TradeSide
+  inputToken      String       @map("input_token")
+  outputToken     String       @map("output_token")
+  inputAmount     String       @map("input_amount")
+  outputAmount    String?      @map("output_amount")
+  txHash          String?      @map("tx_hash")
+  status          TxStatus     @default(pending)
+  failureCode     FailureCode? @map("failure_code")
+  failureReason   String?      @map("failure_reason")
+  gasSpentBNB     String?      @map("gas_spent_bnb")
+  quotedPrice     String?      @map("quoted_price")
+  executedPrice   String?      @map("executed_price")
+  submittedAt     DateTime?    @map("submitted_at")
+  confirmedAt     DateTime?    @map("confirmed_at")
+  wasLimitCapped  Boolean      @default(false) @map("was_limit_capped")
+  limitCapDetails Json?        @map("limit_cap_details")
+  createdBy       String       @map("created_by") @db.Uuid
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  bot    Bot    @relation(fields: [botId], references: [id], onDelete: Restrict)
+  botRun BotRun @relation(fields: [botRunId], references: [id], onDelete: Restrict)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  creator User  @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([botId])
+  @@index([txHash])
+  @@index([botId, createdAt(sort: Desc)])
+  @@index([createdBy, createdAt(sort: Desc)])
+  @@index([status])
+  @@map("transactions")
+}
+
+model LimitRequest {
+  id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String              @map("user_id") @db.Uuid
+  requestedUSD Float               @map("requested_usd")
+  currentUSD   Float               @map("current_usd")
+  reason       String
+  status       LimitRequestStatus  @default(pending)
+  adminNote    String?             @map("admin_note")
+  reviewedBy   String?             @map("reviewed_by") @db.Uuid
+  reviewedAt   DateTime?           @map("reviewed_at")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  user     User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  reviewer User? @relation("LimitRequestReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([userId, status])
+  @@map("limit_requests")
+}
+
+model AuditLog {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  details   String?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

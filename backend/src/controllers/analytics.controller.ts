@@ -1,8 +1,8 @@
 import type { Request, Response } from 'express';
-import mongoose from 'mongoose';
-import { Bot } from '../models/Bot.js';
-import { Transaction } from '../models/Transaction.js';
+import { Prisma, type TxStatus } from '@prisma/client';
+import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/errors.js';
+import { isUuid } from '../utils/ids.js';
 
 export async function volumeAnalytics(req: Request, res: Response): Promise<void> {
   const userId = req.userId;
@@ -14,38 +14,34 @@ export async function volumeAnalytics(req: Request, res: Response): Promise<void
     throw new AppError('VALIDATION_ERROR', 'Invalid from/to dates', 400);
   }
 
-  const match: Record<string, unknown> = {
-    createdBy: new mongoose.Types.ObjectId(userId),
-    createdAt: { $gte: from, $lte: to },
-    status: 'confirmed',
-  };
+  const botId =
+    typeof req.query.botId === 'string' && isUuid(req.query.botId) ? req.query.botId : null;
 
-  if (req.query.botId && typeof req.query.botId === 'string') {
-    match.botId = new mongoose.Types.ObjectId(req.query.botId);
-  }
+  const rows = await prisma.$queryRaw<
+    Array<{ _id: string; volumeWei: unknown; count: number | bigint }>
+  >(Prisma.sql`
+    SELECT b.strategy_type AS "_id",
+           SUM(t.input_amount::numeric) AS "volumeWei",
+           COUNT(*)::int AS "count"
+    FROM transactions t
+    INNER JOIN bots b ON b.id = t.bot_id
+    WHERE t.created_by = ${userId}::uuid
+      AND t.created_at >= ${from}
+      AND t.created_at <= ${to}
+      AND t.status = 'confirmed'
+      ${botId ? Prisma.sql`AND t.bot_id = ${botId}::uuid` : Prisma.empty}
+    GROUP BY b.strategy_type
+  `);
 
-  const pipeline = [
-    { $match: match },
-    {
-      $lookup: {
-        from: 'bots',
-        localField: 'botId',
-        foreignField: '_id',
-        as: 'bot',
-      },
-    },
-    { $unwind: '$bot' },
-    {
-      $group: {
-        _id: '$bot.strategyType',
-        volumeWei: { $sum: { $toDouble: '$inputAmount' } },
-        count: { $sum: 1 },
-      },
-    },
-  ];
-
-  const rows = await Transaction.aggregate(pipeline);
-  res.json({ from, to, byStrategy: rows });
+  res.json({
+    from,
+    to,
+    byStrategy: rows.map((r) => ({
+      _id: r._id,
+      volumeWei: r.volumeWei == null ? '0' : String(r.volumeWei),
+      count: Number(r.count),
+    })),
+  });
 }
 
 export async function summaryAnalytics(req: Request, res: Response): Promise<void> {
@@ -55,15 +51,14 @@ export async function summaryAnalytics(req: Request, res: Response): Promise<voi
   const start = new Date();
   start.setUTCHours(0, 0, 0, 0);
 
-  const botCount = await Bot.countDocuments({
-    createdBy: new mongoose.Types.ObjectId(userId),
-    status: 'active',
+  const botCount = await prisma.bot.count({
+    where: { createdBy: userId, status: 'active' },
   });
 
-  const txToday = await Transaction.find({
-    createdBy: new mongoose.Types.ObjectId(userId),
-    createdAt: { $gte: start },
-  }).lean();
+  const txToday = await prisma.transaction.findMany({
+    where: { createdBy: userId, createdAt: { gte: start } },
+    select: { status: true, gasSpentBNB: true },
+  });
 
   const total = txToday.length;
   const confirmed = txToday.filter((t) => t.status === 'confirmed').length;
@@ -90,31 +85,32 @@ export async function listTransactionsAnalytics(req: Request, res: Response): Pr
 
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
-  const filter: Record<string, unknown> = {
-    createdBy: new mongoose.Types.ObjectId(userId),
-  };
+  const where: Prisma.TransactionWhereInput = { createdBy: userId };
 
   if (typeof req.query.status === 'string') {
-    filter.status = req.query.status;
+    where.status = req.query.status as TxStatus;
   }
-  if (typeof req.query.botId === 'string' && mongoose.isValidObjectId(req.query.botId)) {
-    filter.botId = new mongoose.Types.ObjectId(req.query.botId);
+  if (typeof req.query.botId === 'string' && isUuid(req.query.botId)) {
+    where.botId = req.query.botId;
   }
 
-  const total = await Transaction.countDocuments(filter);
-  const txs = await Transaction.find(filter)
-    .sort({ createdAt: -1 })
-    .skip((page - 1) * limit)
-    .limit(limit)
-    .lean();
+  const [total, txs] = await Promise.all([
+    prisma.transaction.count({ where }),
+    prisma.transaction.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
 
   res.json({
     total,
     page,
     limit,
     transactions: txs.map((t) => ({
-      id: t._id.toString(),
-      botId: t.botId.toString(),
+      id: t.id,
+      botId: t.botId,
       walletAddress: t.walletAddress,
       side: t.side,
       status: t.status,

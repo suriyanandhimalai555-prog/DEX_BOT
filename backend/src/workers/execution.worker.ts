@@ -3,15 +3,14 @@ loadEnv();
 
 import { pathToFileURL } from 'node:url';
 import { Worker, type Job } from 'bullmq';
-import mongoose from 'mongoose';
 import { connectDb } from '../config/db.js';
+import { prisma } from '../config/prisma.js';
+import { isUuid } from '../utils/ids.js';
 import { createBullmqConnection } from '../config/bullmqRedis.js';
 import { QUEUE_NAMES } from '../config/queues.js';
-import { Bot } from '../models/Bot.js';
 import type { IBot } from '../models/Bot.js';
-import { BotRun } from '../models/BotRun.js';
-import { Wallet } from '../models/Wallet.js';
-import { WalletGroup } from '../models/WalletGroup.js';
+import type { IWallet } from '../models/Wallet.js';
+import { mapBot, mapWallet } from '../db/mappers.js';
 import { cancelBotExecution, scheduleNextRun } from '../services/scheduler.service.js';
 import { executeIntent } from '../services/executor.service.js';
 import { generateIntents } from '../services/strategy.service.js';
@@ -21,7 +20,6 @@ import { sendTelegramAlert } from '../services/telegram.service.js';
 import { getOrCreateUserEncryptionKey } from '../utils/userKey.js';
 import { decryptPrivateKey, encryptPrivateKey } from '../utils/crypto.js';
 import { getEnv } from '../config/env.js';
-import type { IWallet } from '../models/Wallet.js';
 
 logger.info({ message: 'Execution worker module loaded' });
 
@@ -29,6 +27,7 @@ const QUEUE_NAME = QUEUE_NAMES.BOT_EXECUTION;
 const WORKER_CONCURRENCY = 3;
 
 let workerInstance: Worker<{ botId: string; triggeredAt: number }> | null = null;
+let dbReady = false;
 
 /**
  * Transparent migration: if a wallet was encrypted with the old global
@@ -37,30 +36,34 @@ let workerInstance: Worker<{ botId: string; triggeredAt: number }> | null = null
  * per-user key. Works for every user automatically — no manual intervention.
  */
 async function autoMigrateWalletEncryption(
-  wallet: IWallet & { save(): Promise<unknown> },
+  wallet: IWallet,
   perUserKey: string
-): Promise<void> {
+): Promise<IWallet> {
   try {
     decryptPrivateKey(wallet.encryptedPrivateKey, perUserKey);
-    return; // already encrypted with per-user key — nothing to do
+    return wallet;
   } catch {
     // fall through to legacy key attempt
   }
 
   const { ENCRYPTION_MASTER_KEY } = getEnv();
-  if (!ENCRYPTION_MASTER_KEY) return; // no legacy key available — cannot auto-migrate
+  if (!ENCRYPTION_MASTER_KEY) return wallet;
 
   try {
     const pk = decryptPrivateKey(wallet.encryptedPrivateKey, ENCRYPTION_MASTER_KEY);
-    wallet.encryptedPrivateKey = encryptPrivateKey(pk, perUserKey);
-    await wallet.save();
+    const encryptedPrivateKey = encryptPrivateKey(pk, perUserKey);
+    const updated = await prisma.wallet.update({
+      where: { id: wallet.id },
+      data: { encryptedPrivateKey },
+    });
     logger.info({
       message: 'Auto-migrated wallet to per-user encryption key',
-      walletId: String(wallet._id),
+      walletId: wallet.id,
       address: wallet.address,
     });
+    return mapWallet(updated, true);
   } catch {
-    // legacy key also failed — wallet is genuinely broken; executeIntent will surface it
+    return wallet;
   }
 }
 
@@ -68,26 +71,30 @@ function startOfUtcDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
-async function resetBotDailyNotional(bot: IBot): Promise<void> {
+async function resetBotDailyNotional(bot: IBot): Promise<IBot> {
   const now = new Date();
   const start = startOfUtcDay(now);
   if (bot.dailyNotionalResetAt < start) {
-    bot.dailyNotionalUSD = 0;
-    bot.dailyNotionalResetAt = now;
-    await bot.save();
+    const updated = await prisma.bot.update({
+      where: { id: bot.id },
+      data: { dailyNotionalUSD: 0, dailyNotionalResetAt: now },
+    });
+    return mapBot(updated);
   }
+  return bot;
 }
 
-async function resetWalletDaily(
-  wallet: mongoose.Document & { dailySpentNotional: number; dailyResetAt: Date }
-): Promise<void> {
+async function resetWalletDaily(wallet: IWallet): Promise<IWallet> {
   const now = new Date();
   const start = startOfUtcDay(now);
   if (wallet.dailyResetAt < start) {
-    wallet.dailySpentNotional = 0;
-    wallet.dailyResetAt = now;
-    await wallet.save();
+    const updated = await prisma.wallet.update({
+      where: { id: wallet.id },
+      data: { dailySpentNotional: 0, dailyResetAt: now },
+    });
+    return mapWallet(updated, true);
   }
+  return wallet;
 }
 
 function emitLog(userId: string | undefined, botId: string, level: 'info' | 'warn' | 'error' | 'success', message: string, details?: Record<string, unknown>): void {
@@ -97,17 +104,22 @@ function emitLog(userId: string | undefined, botId: string, level: 'info' | 'war
 
 async function processExecutionJob(job: Job<{ botId: string; triggeredAt: number }>): Promise<void> {
   const { botId } = job.data;
-  const bot = await Bot.findById(botId);
+  if (!isUuid(botId)) {
+    logger.warn({ message: 'Skip execution: invalid bot id', jobId: job.id, botId });
+    return;
+  }
+  const botRow = await prisma.bot.findUnique({ where: { id: botId } });
 
-  if (!bot || bot.status !== 'active') {
+  if (!botRow || botRow.status !== 'active') {
     logger.warn({ message: 'Skip execution: bot not active', jobId: job.id, botId });
-    if (bot) {
-      emitLog(String(bot.createdBy), botId, 'warn', `Skipped run — bot status is ${bot.status}`, { status: bot.status });
+    if (botRow) {
+      emitLog(botRow.createdBy, botId, 'warn', `Skipped run — bot status is ${botRow.status}`, { status: botRow.status });
     }
     return;
   }
 
-  const userId = String(bot.createdBy);
+  let bot = mapBot(botRow);
+  const userId = bot.createdBy;
   emitLog(userId, botId, 'info', `Execution cycle started (${bot.strategyType})`, {
     strategyType: bot.strategyType,
     jobId: job.id,
@@ -120,11 +132,13 @@ async function processExecutionJob(job: Job<{ botId: string; triggeredAt: number
     return;
   }
 
-  await resetBotDailyNotional(bot);
+  bot = await resetBotDailyNotional(bot);
 
   if (bot.consecutiveFailures >= 5) {
-    bot.status = 'paused';
-    await bot.save();
+    await prisma.bot.update({
+      where: { id: bot.id },
+      data: { status: 'paused' },
+    });
     await cancelBotExecution(botId);
     emitBotStatus(userId, botId, 'paused');
     emitBotError(userId, botId, 'Paused after consecutive failures');
@@ -133,29 +147,35 @@ async function processExecutionJob(job: Job<{ botId: string; triggeredAt: number
     return;
   }
 
-  const group = await WalletGroup.findById(bot.walletGroupId);
-  if (!group || group.walletIds.length === 0) {
+  const group = await prisma.walletGroup.findUnique({
+    where: { id: bot.walletGroupId },
+    include: { members: { select: { walletId: true } } },
+  });
+  const memberIds = group?.members.map((m) => m.walletId) ?? [];
+  if (!group || memberIds.length === 0) {
     emitBotError(userId, botId, 'Wallet group empty');
     emitLog(userId, botId, 'error', 'Wallet group is empty; rescheduling.', {});
     await scheduleNextRun(botId, bot.intervalSeconds);
     return;
   }
 
-  const wallets = await Wallet.find({
-    _id: { $in: group.walletIds },
-    createdBy: bot.createdBy,
-    status: 'active',
-  }).select('+encryptedPrivateKey');
+  const walletRows = await prisma.wallet.findMany({
+    where: {
+      id: { in: memberIds },
+      createdBy: bot.createdBy,
+      status: 'active',
+    },
+  });
+  let wallets = walletRows.map((w) => mapWallet(w, true));
 
   const encryptionKey = await getOrCreateUserEncryptionKey(bot.createdBy);
 
-  // Auto-migrate any wallet still encrypted with the legacy ENCRYPTION_MASTER_KEY
-  for (const w of wallets) {
-    await autoMigrateWalletEncryption(w, encryptionKey);
+  for (let i = 0; i < wallets.length; i++) {
+    wallets[i] = await autoMigrateWalletEncryption(wallets[i], encryptionKey);
   }
 
-  for (const w of wallets) {
-    await resetWalletDaily(w);
+  for (let i = 0; i < wallets.length; i++) {
+    wallets[i] = await resetWalletDaily(wallets[i]);
   }
 
   if (bot.dailyNotionalUSD >= bot.riskPolicy.maxDailyNotionalUSD) {
@@ -176,14 +196,16 @@ async function processExecutionJob(job: Job<{ botId: string; triggeredAt: number
     walletCount: wallets.length,
   });
 
-  const run = await BotRun.create({
-    botId: bot._id,
-    triggeredAt: new Date(job.data.triggeredAt),
-    startedAt: new Date(),
-    status: 'running',
-    intentCount: limited.length,
-    successCount: 0,
-    failureCount: 0,
+  const run = await prisma.botRun.create({
+    data: {
+      botId: bot.id,
+      triggeredAt: new Date(job.data.triggeredAt),
+      startedAt: new Date(),
+      status: 'running',
+      intentCount: limited.length,
+      successCount: 0,
+      failureCount: 0,
+    },
   });
 
   let failures = 0;
@@ -191,7 +213,7 @@ async function processExecutionJob(job: Job<{ botId: string; triggeredAt: number
   let anyFailure = false;
 
   for (const intent of limited) {
-    const wDoc = wallets.find((w) => String(w._id) === intent.walletId);
+    const wDoc = wallets.find((w) => w.id === intent.walletId);
     if (!wDoc) continue;
 
     emitLog(userId, botId, 'info', `Executing ${intent.side} intent for wallet ${intent.walletAddress.slice(0, 10)}…`, {
@@ -203,7 +225,7 @@ async function processExecutionJob(job: Job<{ botId: string; triggeredAt: number
       bot,
       wallet: wDoc,
       intent,
-      botRunId: run._id,
+      botRunId: run.id,
       userId: bot.createdBy,
       encryptionKey,
     });
@@ -219,31 +241,43 @@ async function processExecutionJob(job: Job<{ botId: string; triggeredAt: number
     }
   }
 
-  run.successCount = successes;
-  run.failureCount = failures;
-  run.status = failures > 0 && successes === 0 ? 'failed' : 'completed';
-  run.endedAt = new Date();
-  await run.save();
+  await prisma.botRun.update({
+    where: { id: run.id },
+    data: {
+      successCount: successes,
+      failureCount: failures,
+      status: failures > 0 && successes === 0 ? 'failed' : 'completed',
+      endedAt: new Date(),
+    },
+  });
+
+  const botPatch: {
+    consecutiveFailures?: number;
+    cooldownUntil?: Date;
+    lastRunAt: Date;
+  } = { lastRunAt: new Date() };
 
   if (successes > 0) {
-    bot.consecutiveFailures = 0;
+    botPatch.consecutiveFailures = 0;
   } else if (limited.length > 0) {
-    bot.consecutiveFailures += 1;
+    botPatch.consecutiveFailures = bot.consecutiveFailures + 1;
   }
 
   if (anyFailure) {
-    bot.cooldownUntil = new Date(Date.now() + bot.riskPolicy.cooldownOnFailureSeconds * 1000);
+    botPatch.cooldownUntil = new Date(Date.now() + bot.riskPolicy.cooldownOnFailureSeconds * 1000);
   }
 
-  bot.lastRunAt = new Date();
-  await bot.save();
+  await prisma.bot.update({
+    where: { id: bot.id },
+    data: botPatch,
+  });
 
   await scheduleNextRun(botId, bot.intervalSeconds);
 
   emitLog(userId, botId, 'success', `Cycle complete — ${successes} succeeded, ${failures} failed.`, {
     successCount: successes,
     failureCount: failures,
-    runId: String(run._id),
+    runId: run.id,
   });
 }
 
@@ -253,8 +287,9 @@ export async function startExecutionWorker(): Promise<void> {
     return;
   }
 
-  if (mongoose.connection.readyState !== 1) {
+  if (!dbReady) {
     await connectDb();
+    dbReady = true;
   }
 
   const connection = createBullmqConnection();
@@ -281,14 +316,20 @@ export async function startExecutionWorker(): Promise<void> {
           stack: e.stack,
         });
         try {
-          const b = await Bot.findById(job.data?.botId);
-          if (b) {
-            emitBotLog(String(b.createdBy), {
-              botId: String(job.data.botId),
-              level: 'error',
-              message: `Execution error: ${e.message}`,
-              details: { stack: e.stack },
+          const botId = job.data?.botId;
+          if (botId && isUuid(botId)) {
+            const b = await prisma.bot.findUnique({
+              where: { id: botId },
+              select: { createdBy: true },
             });
+            if (b) {
+              emitBotLog(b.createdBy, {
+                botId,
+                level: 'error',
+                message: `Execution error: ${e.message}`,
+                details: { stack: e.stack },
+              });
+            }
           }
         } catch {
           /* ignore emit errors */

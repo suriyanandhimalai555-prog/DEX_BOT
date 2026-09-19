@@ -1,44 +1,19 @@
-import mongoose, { Schema, type Document } from 'mongoose';
-
 export type UserRole = 'admin' | 'trader' | 'observer';
 
-export interface IUser extends Document {
+export interface IUser {
+  id: string;
   email: string;
-  passwordHash: string;
+  passwordHash?: string;
   displayName: string;
-  totpSecret?: string;
+  totpSecret?: string | null;
   isTotpEnabled: boolean;
-  telegramChatId?: string;
+  telegramChatId?: string | null;
   role: UserRole;
   isActive: boolean;
   tradeLimitUSD: number;
   tradeLimitBNB: number;
   tokenVersion: number;
-  encryptionKey?: string;
+  encryptionKey?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
-
-const UserSchema = new Schema<IUser>(
-  {
-    email: { type: String, required: true, unique: true, lowercase: true },
-    passwordHash: { type: String, required: true, select: false },
-    displayName: { type: String, required: true, default: 'User' },
-    totpSecret: { type: String, select: false },
-    isTotpEnabled: { type: Boolean, default: false },
-    telegramChatId: { type: String },
-    role: {
-      type: String,
-      enum: ['admin', 'trader', 'observer'],
-      default: 'trader',
-    },
-    isActive: { type: Boolean, default: true },
-    tradeLimitUSD: { type: Number, default: 1 },
-    tradeLimitBNB: { type: Number, default: 0.003 },
-    tokenVersion: { type: Number, default: 0 },
-    encryptionKey: { type: String, select: false },
-  },
-  { timestamps: true }
-);
-
-export const User = mongoose.model<IUser>('User', UserSchema);

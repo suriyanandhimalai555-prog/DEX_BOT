@@ -7,16 +7,11 @@ dotenv.config();
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(4000),
-  MONGODB_URI: z.string().min(1),
-  /** Comma-separated DNS IPs for Node SRV lookups (fixes querySrv ECONNREFUSED with mongodb+srv on some Windows setups). */
-  MONGODB_DNS_SERVERS: z
-    .string()
-    .optional()
-    .transform((v) => (v?.trim() ? v.trim() : undefined)),
+  DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
-  /** Legacy global key — no longer required. Per-user keys are now stored in MongoDB. */
+  /** Legacy global key — no longer required. Per-user keys are now stored on the user row. */
   ENCRYPTION_MASTER_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'Must be 64 hex chars (32 bytes)').optional(),
   ALCHEMY_BSC_MAINNET_URL: z.string().url(),
   ALCHEMY_BSC_TESTNET_URL: z.string().url(),

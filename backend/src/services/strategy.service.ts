@@ -70,7 +70,7 @@ export async function generateIntents(
   if (bot.strategyType === 'volume_cycle') {
     logger.info({
       message: 'volume_cycle strategy parameters',
-      botId: String(bot._id),
+      botId: bot.id,
       walletCount: wallets.length,
       buyEnabled: bot.buyEnabled,
       sellEnabled: bot.sellEnabled,

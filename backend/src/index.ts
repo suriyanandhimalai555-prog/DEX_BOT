@@ -27,7 +27,6 @@ import { attachSocketIo } from './socket/txStream.js';
 import { bnbPriceService } from './services/bnbPrice.service.js';
 import { limitSyncService } from './services/limitSync.service.js';
 import { seedDefaultAdminIfEmpty } from './utils/seedAdmin.js';
-import { migrateUserFields } from './utils/migrateUsers.js';
 import { createBullmqConnection } from './config/bullmqRedis.js';
 import { AppError } from './utils/errors.js';
 import { logger } from './utils/logger.js';
@@ -178,7 +177,6 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
 
 async function main(): Promise<void> {
   await connectDb();
-  await migrateUserFields();
   await seedDefaultAdminIfEmpty();
 
   bnbPriceService.setOnPriceUpdated(() => {

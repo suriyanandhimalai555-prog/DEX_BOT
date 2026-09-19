@@ -1,11 +1,11 @@
-# DEX Bot Platform (MERN)
+# DEX Bot Platform
 
-Monorepo for BSC DEX bot orchestration: Express + MongoDB + BullMQ + Socket.io backend, Vite + React frontend.
+Monorepo for BSC DEX bot orchestration: Express + PostgreSQL (Prisma) + BullMQ + Socket.io backend, Vite + React frontend.
 
 ## Prerequisites
 
 - Node.js 20+
-- MongoDB and Redis running locally (or cloud URLs)
+- PostgreSQL 16 and Redis running locally (or cloud URLs). Local compose starts Postgres + Redis for you.
 
 ## Environment files (separate per app)
 
@@ -14,7 +14,7 @@ Monorepo for BSC DEX bot orchestration: Express + MongoDB + BullMQ + Socket.io b
 | Backend  | [`backend/.env.example`](backend/.env.example) | `backend/.env`   |
 | Frontend | [`frontend/.env.example`](frontend/.env.example) | `frontend/.env` |
 
-1. **Backend:** copy `backend/.env.example` → `backend/.env` and set real values (JWT secrets 32+ chars, 64-hex `ENCRYPTION_MASTER_KEY`, Alchemy URLs, `TELEGRAM_BOT_TOKEN`, etc.). `FRONTEND_ORIGIN` must match where you open the UI (default `http://localhost:5173`).
+1. **Backend:** copy `backend/.env.example` → `backend/.env` and set real values (JWT secrets 32+ chars, 64-hex `ENCRYPTION_MASTER_KEY`, Alchemy URLs, `TELEGRAM_BOT_TOKEN`, etc.). `FRONTEND_ORIGIN` must match where you open the UI (default `http://localhost:5173`). Set `DATABASE_URL` to Postgres (`postgresql://dexbot:dexbot@localhost:5432/dexbot` when using local compose from the host). Inside compose, use hostname `postgres` instead of `localhost`.
 
 2. **Frontend:** copy `frontend/.env.example` → `frontend/.env`. For normal local dev you only need `VITE_DEV_BACKEND_URL` if the API is **not** on `http://localhost:4000`. Leave `VITE_API_BASE_URL` unset so the browser uses `/api` and Vite proxies to the backend.
 
@@ -63,7 +63,7 @@ Open **http://localhost:5173**.
 
 ## Roles, panels, and trade limits
 
-On first start with an **empty MongoDB**, the API seeds an admin from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `backend/.env` (copy from `backend/.env.example` and set your own values; never commit `.env`).
+On first start with an **empty Postgres database**, the API seeds an admin from `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `backend/.env` (copy from `backend/.env.example` and set your own values; never commit `.env`). Apply schema with `npx prisma migrate deploy` (the API image does this on start).
 
 | Panel | URL | Who |
 |-------|-----|-----|
@@ -119,6 +119,18 @@ With a valid `backend/.env`:
 cd backend
 npx tsx src/scripts/quote-smoke.ts
 ```
+
+## Kubernetes / production cutover
+
+Postgres stays **external** (managed instance or Postgres on the VPS), same pattern as Atlas before. Do **not** add an in-cluster database.
+
+1. Provision Postgres the cluster can reach.
+2. Patch `dexbot-secret`: add `DATABASE_URL=postgresql://...`; keep Redis, JWT, Alchemy, and encryption keys. Remove `MONGODB_URI` after the new backend is healthy (or leave it unused — the new image does not read it).
+3. Deploy **backend** first. The image runs `npx prisma migrate deploy && npm start`. `/health` remains `{"ok":true}` so existing probes/HPA do not flap.
+4. Deploy **workers** next (same secret and image; command stays `npm run worker:execution` — workers connect only, they do not migrate).
+5. Frontend is unchanged. Register once on production, confirm Postgres, then drop Atlas.
+
+**Rollback:** revert the backend image tag. Point the secret back to `MONGODB_URI` only if that image still uses Mongo. New Postgres data is separate from old Atlas data.
 
 ## Security notes
 - Private keys are encrypted at rest; never returned by the API.

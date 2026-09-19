@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import speakeasy from 'speakeasy';
-import { User } from '../models/User.js';
+import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/errors.js';
 
 /**
@@ -12,7 +12,10 @@ export const requireTotpForAction: RequestHandler = async (req, _res, next) => {
     next(new AppError('UNAUTHORIZED', 'Authentication required', 401));
     return;
   }
-  const user = await User.findById(userId).select('+totpSecret +passwordHash');
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { totpSecret: true, isTotpEnabled: true },
+  });
   if (!user) {
     next(new AppError('NOT_FOUND', 'User not found', 404));
     return;

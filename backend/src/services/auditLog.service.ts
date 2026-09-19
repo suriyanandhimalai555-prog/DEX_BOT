@@ -1,6 +1,5 @@
 import type { Request } from 'express';
-import { AuditLog } from '../models/AuditLog.js';
-import mongoose from 'mongoose';
+import { prisma } from '../config/prisma.js';
 
 export async function logAudit(
   action: string,
@@ -10,12 +9,14 @@ export async function logAudit(
     ipAddress?: string;
   } = {}
 ): Promise<void> {
-  await AuditLog.create({
-    userId: options.userId ? new mongoose.Types.ObjectId(options.userId) : undefined,
-    action,
-    details: options.details,
-    ipAddress: options.ipAddress,
-    createdAt: new Date(),
+  await prisma.auditLog.create({
+    data: {
+      userId: options.userId,
+      action,
+      details: options.details,
+      ipAddress: options.ipAddress,
+      createdAt: new Date(),
+    },
   });
 }
 

@@ -3,7 +3,7 @@
  * Works for ALL users automatically — no per-user manual steps needed.
  *
  * How it works:
- *   1. For each user, get (or create) their per-user encryption key from MongoDB.
+ *   1. For each user, get (or create) their per-user encryption key from Postgres.
  *   2. For each of their wallets, try decrypting with the per-user key.
  *   3. If that fails AND ENCRYPTION_MASTER_KEY is set in .env, try the legacy key.
  *   4. If legacy succeeds, re-encrypt with the per-user key and save.
@@ -19,11 +19,9 @@ import { loadEnv } from '../config/env.js';
 
 loadEnv();
 
-import mongoose from 'mongoose';
-import { connectDb } from '../config/db.js';
+import { connectDb, disconnectDb } from '../config/db.js';
+import { prisma } from '../config/prisma.js';
 import { getEnv } from '../config/env.js';
-import { User } from '../models/User.js';
-import { Wallet } from '../models/Wallet.js';
 import { encryptPrivateKey, decryptPrivateKey } from '../utils/crypto.js';
 import { getOrCreateUserEncryptionKey } from '../utils/userKey.js';
 
@@ -31,7 +29,7 @@ const FIX_MODE = process.argv.includes('--fix');
 
 async function checkOrFix(): Promise<void> {
   const { ENCRYPTION_MASTER_KEY } = getEnv();
-  const users = await User.find().lean();
+  const users = await prisma.user.findMany();
 
   if (users.length === 0) {
     console.log('No users found.');
@@ -44,15 +42,14 @@ async function checkOrFix(): Promise<void> {
   let totalUnfixable = 0;
 
   for (const u of users) {
-    const wallets = await Wallet.find({ createdBy: u._id }).select('+encryptedPrivateKey');
+    const wallets = await prisma.wallet.findMany({ where: { createdBy: u.id } });
     if (wallets.length === 0) continue;
 
-    const perUserKey = await getOrCreateUserEncryptionKey(u._id);
+    const perUserKey = await getOrCreateUserEncryptionKey(u.id);
 
-    console.log(`\nUser: ${u.email} (${String(u._id)})`);
+    console.log(`\nUser: ${u.email} (${u.id})`);
 
     for (const w of wallets) {
-      // 1. Try per-user key
       try {
         decryptPrivateKey(w.encryptedPrivateKey, perUserKey);
         console.log(`  OK      ${w.address}  [${w.label}]`);
@@ -62,7 +59,6 @@ async function checkOrFix(): Promise<void> {
         // per-user key failed
       }
 
-      // 2. Try legacy ENCRYPTION_MASTER_KEY
       if (!ENCRYPTION_MASTER_KEY) {
         console.log(`  BROKEN  ${w.address}  [${w.label}]  — no legacy key in .env to auto-fix`);
         totalBroken++;
@@ -74,8 +70,10 @@ async function checkOrFix(): Promise<void> {
         const pk = decryptPrivateKey(w.encryptedPrivateKey, ENCRYPTION_MASTER_KEY);
 
         if (FIX_MODE) {
-          w.encryptedPrivateKey = encryptPrivateKey(pk, perUserKey);
-          await w.save();
+          await prisma.wallet.update({
+            where: { id: w.id },
+            data: { encryptedPrivateKey: encryptPrivateKey(pk, perUserKey) },
+          });
           console.log(`  FIXED   ${w.address}  [${w.label}]  — re-encrypted with per-user key`);
           totalFixed++;
         } else {
@@ -113,7 +111,7 @@ async function main(): Promise<void> {
     console.log('MODE: Dry-run — showing status only (add --fix to actually migrate)\n');
   }
   await checkOrFix();
-  await mongoose.disconnect();
+  await disconnectDb();
 }
 
 main().catch((err) => {

@@ -3,8 +3,9 @@ loadEnv();
 
 import { formatEther } from 'ethers';
 import { connectDb } from '../config/db.js';
+import { prisma } from '../config/prisma.js';
 import { getJsonRpcProvider } from '../config/chain.js';
-import { Transaction } from '../models/Transaction.js';
+import { mapTransaction } from '../db/mappers.js';
 import {
   emitTxConfirmed,
   emitTxFailed,
@@ -16,10 +17,13 @@ await connectDb();
 const provider = getJsonRpcProvider();
 
 async function pollOnce(): Promise<void> {
-  const txs = await Transaction.find({
-    status: 'submitted',
-    txHash: { $exists: true, $ne: '' },
-  }).limit(100);
+  const txs = await prisma.transaction.findMany({
+    where: {
+      status: 'submitted',
+      txHash: { not: null },
+    },
+    take: 100,
+  });
 
   for (const tx of txs) {
     if (!tx.txHash) continue;
@@ -36,20 +40,26 @@ async function pollOnce(): Promise<void> {
         receipt.gasUsed && gasPrice ? receipt.gasUsed * gasPrice : undefined;
 
       if (receipt.status === 1) {
-        tx.status = 'confirmed';
-        tx.confirmedAt = new Date();
-        if (gasSpent !== undefined) {
-          tx.gasSpentBNB = formatEther(gasSpent);
-        }
-        await tx.save();
-        emitTxConfirmed(String(tx.createdBy), tx);
+        const updated = await prisma.transaction.update({
+          where: { id: tx.id },
+          data: {
+            status: 'confirmed',
+            confirmedAt: new Date(),
+            ...(gasSpent !== undefined ? { gasSpentBNB: formatEther(gasSpent) } : {}),
+          },
+        });
+        emitTxConfirmed(updated.createdBy, mapTransaction(updated));
       } else if (receipt.status === 0) {
-        tx.status = 'failed';
-        tx.failureCode = 'UNKNOWN_REVERT';
-        tx.failureReason = 'Transaction reverted on-chain';
-        tx.confirmedAt = new Date();
-        await tx.save();
-        emitTxFailed(String(tx.createdBy), tx, 'UNKNOWN_REVERT');
+        const updated = await prisma.transaction.update({
+          where: { id: tx.id },
+          data: {
+            status: 'failed',
+            failureCode: 'UNKNOWN_REVERT',
+            failureReason: 'Transaction reverted on-chain',
+            confirmedAt: new Date(),
+          },
+        });
+        emitTxFailed(updated.createdBy, mapTransaction(updated), 'UNKNOWN_REVERT');
       }
     } catch (err) {
       logger.error(`Confirmation poll error tx=${tx.txHash} ${err}`);

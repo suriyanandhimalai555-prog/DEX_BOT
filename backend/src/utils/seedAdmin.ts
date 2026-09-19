@@ -1,16 +1,16 @@
 import bcrypt from 'bcryptjs';
 import { getEnv } from '../config/env.js';
-import { User } from '../models/User.js';
+import { prisma } from '../config/prisma.js';
 import { logger } from './logger.js';
 import { passwordPolicyMessage } from './passwordPolicy.js';
 
 export async function seedDefaultAdminIfEmpty(): Promise<void> {
-  const count = await User.countDocuments();
+  const count = await prisma.user.count();
   if (count > 0) return;
 
   const env = getEnv();
   if (!env.ADMIN_EMAIL || !env.ADMIN_PASSWORD) {
-    logger.warn('Empty user collection and ADMIN_EMAIL/ADMIN_PASSWORD unset — skipping admin seed');
+    logger.warn('Empty user table and ADMIN_EMAIL/ADMIN_PASSWORD unset — skipping admin seed');
     return;
   }
 
@@ -33,14 +33,16 @@ export async function seedDefaultAdminIfEmpty(): Promise<void> {
   const tradeLimitBNB = defaultUsd / env.BNB_PRICE_FALLBACK_USD;
 
   const passwordHash = await bcrypt.hash(env.ADMIN_PASSWORD, 12);
-  await User.create({
-    email: env.ADMIN_EMAIL.toLowerCase(),
-    passwordHash,
-    displayName: 'Administrator',
-    role: 'admin',
-    isActive: true,
-    tradeLimitUSD: defaultUsd,
-    tradeLimitBNB,
+  await prisma.user.create({
+    data: {
+      email: env.ADMIN_EMAIL.toLowerCase(),
+      passwordHash,
+      displayName: 'Administrator',
+      role: 'admin',
+      isActive: true,
+      tradeLimitUSD: defaultUsd,
+      tradeLimitBNB,
+    },
   });
 
   logger.warn(
